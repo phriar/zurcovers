@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0a0a0a">
+<title>zurcovers — Spawn &amp; OddKey Comics on Solana</title>
+<meta name="description" content="A live listings feed and cover-art gallery for Spawn/OddKey comic NFTs on Solana — coming soon.">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  :root{
+    --ink:    #0a0a0a;
+    --gold:   #8f6fe8;
+    --deep:   #6b2fd6;
+    --cyan:   #4de8ff;
+    --border: rgba(255,255,255,0.07);
+  }
+
+  body{
+    background:var(--ink); color:#fff; min-height:100vh;
+    font-family:'DM Mono',monospace; -webkit-font-smoothing:antialiased;
+    display:flex; align-items:center; justify-content:center;
+    padding:32px;
+  }
+
+  #grain{
+    position:fixed; inset:0; z-index:0; pointer-events:none; opacity:0.025;
+    background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  main{
+    position:relative; z-index:1; max-width:560px; text-align:center;
+  }
+
+  .wordmark{
+    font-size:.8rem; letter-spacing:.5em; text-transform:uppercase;
+    color:rgba(255,255,255,0.3); margin-bottom:22px;
+  }
+
+  h1{
+    font-family:'Cormorant Garamond',serif; font-weight:300; letter-spacing:.01em;
+    font-size:clamp(2.2rem,7vw,3.4rem); color:rgba(255,255,255,0.95); line-height:1.15;
+    margin-bottom:20px;
+  }
+  h1 span{
+    background:linear-gradient(135deg, var(--gold), var(--cyan));
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+
+  p.tagline{
+    font-size:1rem; line-height:1.7; color:rgba(255,255,255,0.5);
+    max-width:440px; margin:0 auto 34px;
+  }
+
+  .status-pill{
+    display:inline-flex; align-items:center; gap:8px;
+    font-size:.7rem; letter-spacing:.14em; text-transform:uppercase;
+    color:rgba(255,255,255,0.55);
+    border:1px solid var(--border); border-radius:100px;
+    padding:9px 18px; margin-bottom:40px;
+  }
+  .status-dot{
+    width:6px; height:6px; border-radius:50%; background:var(--cyan);
+    box-shadow:0 0 8px rgba(77,232,255,0.6);
+  }
+
+  /* Disclosure, up front, not buried — same lesson learned building
+     ZurVault: a site displaying live third-party marketplace data next to
+     recognizable branded art should never leave a visitor guessing whether
+     it's an official storefront. Stated plainly from day one here rather
+     than retrofitted after the fact. */
+  .disclosure{
+    max-width:440px; margin:0 auto; padding:14px 18px;
+    border:1px solid rgba(77,232,255,0.18); border-radius:4px;
+    background:rgba(77,232,255,0.05);
+    font-size:.72rem; line-height:1.6; color:rgba(255,255,255,0.5);
+  }
+
+  footer{
+    margin-top:40px; font-size:.62rem; letter-spacing:.1em;
+    color:rgba(255,255,255,0.25); text-transform:uppercase;
+  }
+  footer a{ color:rgba(143,111,232,0.6); text-decoration:none; }
+  footer a:hover{ color:var(--gold); }
+</style>
+</head>
+<body>
+<div id="grain"></div>
+
+<main>
+  <div class="wordmark">zurcovers</div>
+  <h1>Spawn &amp; OddKey<br><span>on Solana</span></h1>
+  <p class="tagline">A live listings feed and cover-art gallery for Spawn/OddKey comic NFTs — pulled straight from Magic Eden's public marketplace, no wallet or login required.</p>
+
+  <div class="status-pill"><span class="status-dot"></span>Coming soon</div>
+
+  <div class="disclosure">
+    Unofficial fan project &mdash; not affiliated with or endorsed by Todd McFarlane, Image Comics, or OddKey. Prices and listings shown will be live third-party data; all purchases happen on Magic Eden, not here.
+  </div>
+
+  <footer>
+    A companion project to <a href="https://zurvault.com" target="_blank" rel="noopener">zurvault.com</a>
+  </footer>
+</main>
+</body>
+</html>
