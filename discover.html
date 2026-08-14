@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0a0a0a">
+<title>Collection Discovery — zurcovers</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0a0a0a; --bg-panel:#121212; --bg-card:#161616; --border:#262626;
+    --red:#e0263e; --green:#39ff6a; --text:#e8e8e8; --text-dim:#8a8a8a;
+    --deep:#6b2fd6; --cyan:#4de8ff;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--bg); color:var(--text); font-family:'Oswald',sans-serif;}
+  .mono{font-family:'JetBrains Mono',monospace;}
+  header{padding:20px 16px 14px; border-bottom:1px solid var(--border);}
+  header .brand{font-size:14px; letter-spacing:2px; color:var(--text-dim); text-transform:uppercase;}
+  header .brand a{color:var(--text-dim); text-decoration:none;}
+  header h1{margin:4px 0 0; font-size:24px; font-weight:700; text-transform:uppercase;}
+  header h1 span{color:var(--red);}
+  header p{font-size:12px; color:var(--text-dim); margin:8px 0 0; line-height:1.5;}
+
+  .panel{padding:16px; border-bottom:1px solid var(--border); background:var(--bg-panel);}
+  label{display:block; font-size:11px; letter-spacing:1px; text-transform:uppercase; color:var(--text-dim); margin:10px 0 4px;}
+  input{
+    width:100%; background:var(--bg-card); border:1px solid var(--border); color:var(--text);
+    font-family:'JetBrains Mono',monospace; font-size:13px; padding:10px; border-radius:4px;
+  }
+  input:focus{outline:1px solid var(--red);}
+  button{
+    margin-top:14px; width:100%; background:var(--red); color:#fff; border:none;
+    padding:12px; font-family:'Oswald',sans-serif; font-weight:600; letter-spacing:1px;
+    text-transform:uppercase; font-size:13px; border-radius:4px; cursor:pointer;
+  }
+  button:disabled{background:#3a3a3a; color:var(--text-dim);}
+  button.secondary{background:var(--bg-card); border:1px solid var(--border); color:var(--text);}
+
+  #status{padding:14px 16px; font-size:12px; color:var(--text-dim);}
+  #status.err{color:var(--red);}
+  #status .dot{display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--cyan); margin-right:6px;}
+
+  .results{padding:0 16px 20px;}
+  .row{
+    display:flex; align-items:center; gap:10px; padding:10px; margin-bottom:8px;
+    background:var(--bg-card); border:1px solid var(--border); border-radius:6px;
+  }
+  .row img{width:40px; height:56px; object-fit:cover; border-radius:3px; background:#1c1c1c; flex-shrink:0;}
+  .row .meta{flex:1; min-width:0;}
+  .row .name{font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .row .sub{font-size:10px; color:var(--text-dim); margin-top:2px;}
+  .row .count{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--green); flex-shrink:0;}
+  .row .symbol{font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-dim); flex-shrink:0; width:110px; text-align:right;}
+  .row .symbol.unresolved{color:var(--red);}
+
+  #output{
+    margin:16px; padding:14px; background:var(--bg-card); border:1px solid var(--border); border-radius:6px;
+    font-family:'JetBrains Mono',monospace; font-size:11px; white-space:pre-wrap; word-break:break-all;
+    color:var(--green); max-height:280px; overflow-y:auto;
+  }
+  .hint{font-size:11px; color:var(--text-dim); padding:0 16px 20px; line-height:1.5;}
+  .hint a{color:var(--red);}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand mono"><a href="index.html">zurcovers</a> / Discover</div>
+  <h1>Collection <span>Discovery</span></h1>
+  <p>Scans your wallet's owned Spawn/OddKey comics, groups them by their on-chain collection, dedupes, and resolves each to a Magic Eden symbol — ready to paste into SPAWN_COLLECTIONS in zurcovers-proxy-worker.js. Same tool ZurVault uses, pointed at a different wallet and a different Worker.</p>
+</header>
+
+<div class="panel">
+  <label>Wallet public key</label>
+  <input type="text" id="wallet" placeholder="paste your Spawn wallet's public address">
+  <label>Helius API key (session-only, never stored)</label>
+  <input type="password" id="heliusKey" placeholder="paste key here">
+  <button id="scanBtn">Scan Wallet &amp; Discover Collections</button>
+</div>
+
+<div id="status" class="mono"></div>
+<div class="results" id="results"></div>
+<div id="output" style="display:none;"></div>
+<div class="hint" id="copyHint" style="display:none;">
+  Copy the array above into <span class="mono">SPAWN_COLLECTIONS</span> at the top of zurcovers-proxy-worker.js.
+  Entries marked <span class="mono" style="color:var(--red)">UNRESOLVED</span> couldn't be matched to a Magic Eden symbol automatically — usually means it's not listed on ME, or the collection mint lookup failed. Fill those in by hand from the ME collection URL. As always: review every entry by hand before it goes live — not every "Spawn"-named thing you hold is necessarily a comic (could be a toy, a PFP, an unrelated art drop).
+</div>
+<button class="secondary" id="copyBtn" style="display:none; margin:0 16px 30px; width:calc(100% - 32px);">Copy Config to Clipboard</button>
+
+<script>
+const HELIUS_BASE = "https://mainnet.helius-rpc.com/";
+
+// Direct calls to Magic Eden get CORS-blocked from the browser — route
+// through the zurcovers-proxy Worker instead, same reason ZurVault's
+// discover.html routes through zurvault-proxy. TODO: replace with the real
+// URL once zurcovers-proxy-worker.js has actually been deployed to
+// Cloudflare (paste into dashboard, bind ZURCOVERS_CACHE KV, add Cron
+// Trigger — see that file's own header for the full steps). Symbol
+// resolution below will fail until this points at a live Worker.
+const ME_PROXY_BASE = "https://zurcovers-proxy.YOURNAME.workers.dev";
+const ME_BASE = ME_PROXY_BASE + "/v2";
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+const statusEl = document.getElementById('status');
+const resultsEl = document.getElementById('results');
+const outputEl = document.getElementById('output');
+const copyHintEl = document.getElementById('copyHint');
+const copyBtn = document.getElementById('copyBtn');
+const scanBtn = document.getElementById('scanBtn');
+
+function setStatus(msg, isErr){
+  statusEl.innerHTML = (isErr ? '' : '<span class="dot"></span>') + msg;
+  statusEl.classList.toggle('err', !!isErr);
+}
+
+async function fetchAllOwnedAssets(wallet, apiKey){
+  let page = 1;
+  let all = [];
+  while(true){
+    const res = await fetch(`${HELIUS_BASE}?api-key=${apiKey}`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        jsonrpc:'2.0', id:'zurcovers-discover', method:'getAssetsByOwner',
+        params:{ ownerAddress: wallet, page, limit:1000 }
+      })
+    });
+    if(!res.ok) throw new Error(`Helius HTTP ${res.status}`);
+    const json = await res.json();
+    if(json.error) throw new Error(json.error.message || 'Helius error');
+    const items = json.result?.items || [];
+    all = all.concat(items);
+    if(items.length < 1000) break;
+    page++;
+  }
+  return all;
+}
+
+function extractCollectionKey(asset){
+  const grouping = asset.grouping?.find(g => g.group_key === 'collection');
+  return grouping?.group_value || null;
+}
+
+function guessImage(asset){
+  const files = asset.content?.files;
+  if(files && files.length){
+    return files[0].cdn_uri || files[0].uri || '';
+  }
+  return asset.content?.links?.image || asset.content?.metadata?.image || '';
+}
+
+// Same retry-with-backoff as ZurVault's discover.html — a single transient
+// 429/network blip shouldn't permanently mark a collection UNRESOLVED with
+// no way to tell that apart from "genuinely not on ME."
+const ME_LOOKUP_MAX_ATTEMPTS = 3;
+
+async function resolveMESymbol(mintAddress, attempt = 1){
+  try{
+    const res = await fetch(`${ME_BASE}/tokens/${mintAddress}`);
+    if(!res.ok){
+      if(attempt < ME_LOOKUP_MAX_ATTEMPTS){
+        console.warn(`ME lookup failed for ${mintAddress} (attempt ${attempt}/${ME_LOOKUP_MAX_ATTEMPTS}, HTTP ${res.status}) — retrying…`);
+        await sleep(800 * attempt);
+        return resolveMESymbol(mintAddress, attempt + 1);
+      }
+      console.warn(`ME lookup failed for ${mintAddress}: HTTP ${res.status} (gave up after ${ME_LOOKUP_MAX_ATTEMPTS} attempts)`);
+      return null;
+    }
+    const data = await res.json();
+    const collectionField = data?.collection;
+    const symbol = (typeof collectionField === 'string')
+      ? collectionField
+      : (collectionField?.symbol || collectionField?.name || data?.collectionSymbol || null);
+    if(!symbol) console.warn(`No collection symbol in ME response for ${mintAddress}`, data);
+    return symbol;
+  }catch(e){
+    if(attempt < ME_LOOKUP_MAX_ATTEMPTS){
+      console.warn(`ME lookup errored for ${mintAddress} (attempt ${attempt}/${ME_LOOKUP_MAX_ATTEMPTS}): ${e.message} — retrying…`);
+      await sleep(800 * attempt);
+      return resolveMESymbol(mintAddress, attempt + 1);
+    }
+    console.warn(`ME lookup errored for ${mintAddress}: ${e.message} (gave up after ${ME_LOOKUP_MAX_ATTEMPTS} attempts)`);
+    return null;
+  }
+}
+
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+
+function cleanLabel(name){
+  return (name || 'Unknown')
+    .replace(/#\d+.*$/,'')
+    .replace(/\bEdition\b.*$/i,'')
+    .trim() || 'Unknown';
+}
+
+async function run(){
+  const wallet = document.getElementById('wallet').value.trim();
+  const apiKey = document.getElementById('heliusKey').value.trim();
+  if(!wallet || !apiKey){
+    setStatus('Enter both wallet address and Helius API key.', true);
+    return;
+  }
+
+  scanBtn.disabled = true;
+  resultsEl.innerHTML = '';
+  outputEl.style.display = 'none';
+  copyHintEl.style.display = 'none';
+  copyBtn.style.display = 'none';
+
+  setStatus('Fetching owned assets from Helius…');
+  let assets;
+  try{
+    assets = await fetchAllOwnedAssets(wallet, apiKey);
+  }catch(e){
+    setStatus('Failed to fetch assets: ' + e.message, true);
+    scanBtn.disabled = false;
+    return;
+  }
+
+  setStatus(`${assets.length} assets found. Grouping by on-chain collection…`);
+
+  const groups = {};
+  for(const asset of assets){
+    const key = extractCollectionKey(asset);
+    if(!key) continue;
+    if(!groups[key]){
+      groups[key] = {
+        mint: key,
+        count: 0,
+        name: cleanLabel(asset.content?.metadata?.name),
+        image: guessImage(asset),
+        sampleTokenMint: asset.id,
+      };
+    }
+    groups[key].count++;
+  }
+
+  const collectionKeys = Object.keys(groups);
+  if(collectionKeys.length === 0){
+    setStatus('No grouped collections found in this wallet.', true);
+    scanBtn.disabled = false;
+    return;
+  }
+
+  setStatus(`${collectionKeys.length} unique collections found (deduped from ${assets.length} assets). Resolving Magic Eden symbols…`);
+
+  let resolvedCount = 0;
+  for(const key of collectionKeys){
+    const symbol = await resolveMESymbol(groups[key].sampleTokenMint);
+    groups[key].symbol = symbol;
+    if(symbol) resolvedCount++;
+    setStatus(`Resolving Magic Eden symbols… ${resolvedCount}/${collectionKeys.length} done`);
+    await sleep(900);
+  }
+
+  setStatus(`Done. ${collectionKeys.length} collections, ${resolvedCount} resolved to a Magic Eden symbol.`);
+
+  resultsEl.innerHTML = collectionKeys.map(key => {
+    const g = groups[key];
+    return `
+      <div class="row">
+        <img src="${esc(g.image)}" onerror="this.style.opacity=0.2">
+        <div class="meta">
+          <div class="name">${esc(g.name)}</div>
+          <div class="sub mono">${key.slice(0,4)}…${key.slice(-4)}</div>
+        </div>
+        <div class="count">×${g.count}</div>
+        <div class="symbol ${g.symbol ? '' : 'unresolved'}">${esc(g.symbol || 'UNRESOLVED')}</div>
+      </div>
+    `;
+  }).join('');
+
+  const configLines = collectionKeys.map(key => {
+    const g = groups[key];
+    const symbol = g.symbol || `UNRESOLVED_${key.slice(0,6)}`;
+    return `  { sub: "${g.name.replace(/"/g,"'")}", symbol: "${symbol}" }, // ${g.count} owned`;
+  });
+  const configText = `const SPAWN_COLLECTIONS = [\n${configLines.join('\n')}\n];`;
+
+  outputEl.textContent = configText;
+  outputEl.style.display = 'block';
+  copyHintEl.style.display = 'block';
+  copyBtn.style.display = 'block';
+
+  scanBtn.disabled = false;
+}
+
+copyBtn.addEventListener('click', () => {
+  navigator.clipboard.writeText(outputEl.textContent).then(() => {
+    copyBtn.textContent = 'Copied!';
+    setTimeout(() => copyBtn.textContent = 'Copy Config to Clipboard', 1500);
+  });
+});
+
+scanBtn.addEventListener('click', run);
+</script>
+</body>
+</html>
