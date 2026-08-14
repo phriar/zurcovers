@@ -93,12 +93,8 @@ const HELIUS_BASE = "https://mainnet.helius-rpc.com/";
 
 // Direct calls to Magic Eden get CORS-blocked from the browser — route
 // through the zurcovers-proxy Worker instead, same reason ZurVault's
-// discover.html routes through zurvault-proxy. TODO: replace with the real
-// URL once zurcovers-proxy-worker.js has actually been deployed to
-// Cloudflare (paste into dashboard, bind ZURCOVERS_CACHE KV, add Cron
-// Trigger — see that file's own header for the full steps). Symbol
-// resolution below will fail until this points at a live Worker.
-const ME_PROXY_BASE = "https://zurcovers-proxy.YOURNAME.workers.dev";
+// discover.html routes through zurvault-proxy.
+const ME_PROXY_BASE = "https://zurcovers-proxy.stholt.workers.dev";
 const ME_BASE = ME_PROXY_BASE + "/v2";
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
