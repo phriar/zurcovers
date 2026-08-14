@@ -22,8 +22,9 @@
  * 2. Create a KV namespace (Workers & Pages → KV → Create) named
  *    ZURCOVERS_CACHE, bind it to this Worker under that same name
  *    (Worker Settings → Variables → KV Namespace Bindings).
- * 3. Add a Cron Trigger (Worker Settings → Triggers): */20 * * * * (every
- *    20 min, same cadence as zurvault-proxy).
+ * 3. Add a Cron Trigger (Worker Settings → Triggers): every 20 minutes
+ *    (cron expression "star-slash-20 star star star star"), same cadence
+ *    as zurvault-proxy.
  * 4. Note the URL Cloudflare gives you and point zurcovers.com's pages at
  *    it (ME_PROXY_BASE constant in each HTML file).
  *
