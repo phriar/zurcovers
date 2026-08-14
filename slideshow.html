@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ZurCovers — Slideshow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0B0D12;
+    --ink-2:#111420;
+    --cyan:#2DE6D0;
+    --gold:#E8B24D;
+    --cream:#F3EFE6;
+    --red:#E5484D;
+    --line: rgba(243,239,230,0.12);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background-color:var(--ink);
+    background-image:
+      radial-gradient(circle, rgba(45,230,208,0.05) 1px, transparent 1px);
+    background-size: 14px 14px;
+    color:var(--cream);
+    font-family:'Inter',sans-serif;
+    min-height:100vh;
+  }
+  ::selection{ background:var(--cyan); color:var(--ink);}
+  a{color:var(--cyan);}
+
+  .wrap{
+    max-width:1100px;
+    margin:0 auto;
+    padding:32px 20px 80px;
+  }
+
+  header.hero{
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+    padding-bottom:28px;
+    border-bottom:1px dashed var(--line);
+    margin-bottom:28px;
+  }
+  .eyebrow{
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px;
+    letter-spacing:0.18em;
+    text-transform:uppercase;
+    color:var(--gold);
+  }
+  h1{
+    font-family:'Oswald',sans-serif;
+    font-weight:700;
+    font-size:clamp(32px,7vw,56px);
+    letter-spacing:0.01em;
+    margin:2px 0 4px;
+    line-height:0.98;
+  }
+  h1 span{color:var(--cyan);}
+  .sub{
+    color:rgba(243,239,230,0.65);
+    font-size:15px;
+    max-width:560px;
+    line-height:1.5;
+  }
+
+  .ticket{
+    position:relative;
+    background:var(--ink-2);
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:24px 24px 20px;
+    margin-bottom:20px;
+    overflow:hidden;
+  }
+  .ticket::before{
+    content:"";
+    position:absolute;
+    left:0; top:0; bottom:0;
+    width:6px;
+    background:repeating-linear-gradient(
+      to bottom, var(--cyan) 0 10px, transparent 10px 20px
+    );
+    opacity:0.5;
+  }
+  .ticket-label{
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px;
+    letter-spacing:0.14em;
+    text-transform:uppercase;
+    color:var(--cyan);
+    margin-bottom:14px;
+    display:block;
+  }
+  .field{ margin-bottom:14px; }
+  .field label{
+    display:block;
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px;
+    color:rgba(243,239,230,0.55);
+    margin-bottom:6px;
+    letter-spacing:0.04em;
+  }
+  .field input{
+    width:100%;
+    background:var(--ink);
+    border:1px solid var(--line);
+    color:var(--cream);
+    font-family:'JetBrains Mono', monospace;
+    font-size:13px;
+    padding:11px 12px;
+    border-radius:3px;
+    outline:none;
+    transition:border-color 0.15s;
+  }
+  .field input::placeholder{ color:rgba(243,239,230,0.28); }
+  .field input:focus{ border-color:var(--cyan); }
+  .field .hint{
+    font-size:11px;
+    color:rgba(243,239,230,0.4);
+    margin-top:5px;
+  }
+
+  .row{ display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; }
+  .row .field{ flex:1; min-width:200px; }
+  .row .field.narrow{ flex:0 0 140px; min-width:120px; }
+
+  .btn-row{ display:flex; gap:10px; flex-wrap:wrap; }
+
+  button{
+    font-family:'Oswald',sans-serif;
+    font-weight:600;
+    font-size:14px;
+    letter-spacing:0.06em;
+    text-transform:uppercase;
+    border:none;
+    padding:12px 22px;
+    border-radius:3px;
+    cursor:pointer;
+    transition:transform 0.1s, box-shadow 0.15s;
+  }
+  button.load{ background:var(--cyan); color:var(--ink); }
+  button.load:hover{ box-shadow:0 0 0 3px rgba(45,230,208,0.2); }
+  button.play{ background:var(--gold); color:var(--ink); }
+  button.play:hover{ box-shadow:0 0 0 3px rgba(232,178,77,0.25); }
+  button:disabled{ opacity:0.5; cursor:not-allowed; }
+  button:active{ transform:translateY(1px); }
+
+  .status{
+    font-family:'JetBrains Mono', monospace;
+    font-size:12px;
+    margin-top:14px;
+    color:rgba(243,239,230,0.6);
+    min-height:16px;
+  }
+  .status.err{ color:var(--red); }
+
+  .disclaimer{
+    font-size:12px;
+    line-height:1.6;
+    color:rgba(243,239,230,0.55);
+    border:1px solid var(--line);
+    border-left:3px solid var(--gold);
+    padding:14px 16px;
+    border-radius:3px;
+    margin-bottom:36px;
+  }
+  .disclaimer b{ color:var(--gold); }
+
+  .count-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    margin-bottom:16px;
+    font-family:'JetBrains Mono', monospace;
+    font-size:12px;
+    color:rgba(243,239,230,0.5);
+    letter-spacing:0.04em;
+  }
+  .grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(160px,1fr));
+    gap:3px;
+    background:var(--line);
+    border:1px solid var(--line);
+  }
+  .panel{
+    position:relative;
+    background:var(--cream);
+    aspect-ratio:2/3;
+    overflow:hidden;
+  }
+  .panel img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .panel .tag{
+    position:absolute;
+    bottom:0; left:0; right:0;
+    background:linear-gradient(to top, rgba(0,0,0,0.85), transparent);
+    color:#fff;
+    font-family:'Oswald',sans-serif;
+    font-size:12px;
+    font-weight:500;
+    padding:16px 8px 8px;
+    line-height:1.25;
+  }
+
+  .empty{
+    text-align:center;
+    padding:60px 20px;
+    color:rgba(243,239,230,0.4);
+    font-family:'JetBrains Mono', monospace;
+    font-size:13px;
+  }
+
+  /* --- slideshow overlay --- */
+  .slideshow{
+    position:fixed; inset:0;
+    background:#000;
+    display:none;
+    align-items:center;
+    justify-content:center;
+    z-index:100;
+  }
+  .slideshow.open{ display:flex; }
+  .slideshow img{
+    max-width:92vw;
+    max-height:82vh;
+    border-radius:4px;
+    box-shadow:0 20px 60px rgba(0,0,0,0.6);
+    user-select:none;
+  }
+  .slideshow .cap{
+    position:absolute;
+    bottom:74px; left:0; right:0;
+    text-align:center;
+    font-family:'Oswald',sans-serif;
+    font-size:16px;
+    color:var(--cream);
+  }
+  .slideshow .counter{
+    position:absolute;
+    top:22px; left:24px;
+    font-family:'JetBrains Mono', monospace;
+    font-size:12px;
+    color:rgba(243,239,230,0.6);
+    letter-spacing:0.06em;
+  }
+  .slideshow .close{
+    position:absolute;
+    top:20px; right:24px;
+    color:var(--cream);
+    font-family:'JetBrains Mono', monospace;
+    font-size:13px;
+    cursor:pointer;
+    letter-spacing:0.08em;
+  }
+  .slideshow .controls{
+    position:absolute;
+    bottom:20px; left:0; right:0;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    gap:18px;
+  }
+  .slideshow .controls button{
+    background:transparent;
+    border:1px solid var(--line);
+    color:var(--cream);
+    font-family:'JetBrains Mono', monospace;
+    font-size:12px;
+    padding:9px 16px;
+    letter-spacing:0.06em;
+  }
+  .slideshow .controls button:hover{ border-color:var(--cyan); color:var(--cyan); }
+
+  footer{
+    margin-top:60px;
+    padding-top:20px;
+    border-top:1px dashed var(--line);
+    font-size:11px;
+    font-family:'JetBrains Mono', monospace;
+    color:rgba(243,239,230,0.35);
+    display:flex;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:8px;
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header class="hero">
+    <span class="eyebrow">ZurCovers · Reader's Vault</span>
+    <h1>Cover <span>Slideshow</span></h1>
+    <p class="sub">Paste a Solana wallet address to build an auto-advancing, fullscreen display of the digital comic covers it holds — sourced from licensed collections on Candy Digital. No wallet connection, no signature, read-only.</p>
+  </header>
+
+  <div class="ticket">
+    <span class="ticket-label">☐ Reader Lookup — No. 002</span>
+
+    <div class="row">
+      <div class="field">
+        <label for="owner">Solana Wallet Address (public key)</label>
+        <input id="owner" type="text" placeholder="e.g. 7NWgPbshWRR1jxhN9mXkhDS4kzKBhp8rSFFYDkVWU9bb" autocomplete="off" spellcheck="false" />
+        <div class="hint">This is your public address — safe to paste, viewable by anyone already.</div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label for="apikey">Helius API Key (session only)</label>
+        <input id="apikey" type="password" placeholder="paste your Helius API key" autocomplete="off" spellcheck="false" />
+        <div class="hint">Used only in this browser tab. Never sent anywhere else, never stored, never put in the URL.</div>
+      </div>
+      <div class="field">
+        <label for="collection">Collection Filter — optional (group key)</label>
+        <input id="collection" type="text" placeholder="e.g. Candy DC collection address" autocomplete="off" spellcheck="false" />
+        <div class="hint">Leave blank to show every NFT the wallet holds with an image.</div>
+      </div>
+      <div class="field narrow">
+        <label for="interval">Seconds / slide</label>
+        <input id="interval" type="number" min="2" max="60" step="1" value="6" />
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="load" id="loadBtn">Pull Covers</button>
+      <button class="play" id="playBtn" disabled>▶ Start Slideshow</button>
+    </div>
+    <div class="status" id="status"></div>
+  </div>
+
+  <div class="disclaimer">
+    <b>Fan-built, unofficial project.</b> ZurCovers is not affiliated with, endorsed by, or sponsored by DC Comics, Warner Bros. Discovery, or Candy Digital. This is a read-only display tool: it queries the public Solana blockchain for assets already owned by the wallet address you provide and cycles through their cover art. It never requests a wallet connection, never asks for a signature, and cannot move, sell, or modify anything you own. A wallet address can be pre-filled via <code>?wallet=</code> in the URL for kiosk-style setups — the API key is never accepted this way and must always be typed into the field above.
+  </div>
+
+  <div class="count-row" id="countRow" style="display:none;">
+    <span id="countText"></span>
+    <span id="ownerEcho"></span>
+  </div>
+
+  <div class="grid" id="grid"></div>
+  <div class="empty" id="emptyState" style="display:none;">No covers loaded yet — enter a wallet address above.</div>
+
+</div>
+
+<div class="slideshow" id="slideshow">
+  <span class="counter" id="ssCounter"></span>
+  <span class="close" id="ssClose">✕ EXIT</span>
+  <img id="ssImg" src="" alt="" />
+  <div class="cap" id="ssCap"></div>
+  <div class="controls">
+    <button id="ssPrev">‹ PREV</button>
+    <button id="ssToggle">PAUSE</button>
+    <button id="ssNext">NEXT ›</button>
+  </div>
+</div>
+
+<script>
+const ownerInput = document.getElementById('owner');
+const apiKeyInput = document.getElementById('apikey');
+const collectionInput = document.getElementById('collection');
+const intervalInput = document.getElementById('interval');
+const loadBtn = document.getElementById('loadBtn');
+const playBtn = document.getElementById('playBtn');
+const statusEl = document.getElementById('status');
+const grid = document.getElementById('grid');
+const emptyState = document.getElementById('emptyState');
+const countRow = document.getElementById('countRow');
+const countText = document.getElementById('countText');
+const ownerEcho = document.getElementById('ownerEcho');
+
+const slideshow = document.getElementById('slideshow');
+const ssImg = document.getElementById('ssImg');
+const ssCap = document.getElementById('ssCap');
+const ssCounter = document.getElementById('ssCounter');
+const ssClose = document.getElementById('ssClose');
+const ssPrev = document.getElementById('ssPrev');
+const ssNext = document.getElementById('ssNext');
+const ssToggle = document.getElementById('ssToggle');
+
+let covers = [];
+let ssIndex = 0;
+let ssTimer = null;
+let ssPlaying = true;
+
+function setStatus(msg, isErr){
+  statusEl.textContent = msg || '';
+  statusEl.className = 'status' + (isErr ? ' err' : '');
+}
+
+function shortAddr(a){
+  if(!a || a.length < 10) return a || '';
+  return a.slice(0,4) + '…' + a.slice(-4);
+}
+
+async function fetchAssets(owner, apiKey){
+  const url = `https://mainnet.helius-rpc.com/?api-key=${encodeURIComponent(apiKey)}`;
+  const body = {
+    jsonrpc: '2.0',
+    id: 'zurcovers',
+    method: 'getAssetsByOwner',
+    params: {
+      ownerAddress: owner,
+      page: 1,
+      limit: 1000,
+      displayOptions: { showCollectionMetadata: true }
+    }
+  };
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if(!res.ok){
+    throw new Error(`Helius request failed (${res.status}). Check your API key.`);
+  }
+  const data = await res.json();
+  if(data.error){
+    throw new Error(data.error.message || 'Helius returned an error.');
+  }
+  return data.result?.items || [];
+}
+
+function extractImage(item){
+  const files = item?.content?.files;
+  if(files && files.length){
+    const withUri = files.find(f => f.uri);
+    if(withUri) return withUri.uri;
+  }
+  return item?.content?.links?.image || item?.content?.json_uri || null;
+}
+
+function extractCollectionKey(item){
+  const grouping = item?.grouping || [];
+  const g = grouping.find(g => g.group_key === 'collection');
+  return g ? g.group_value : null;
+}
+
+function renderGrid(items){
+  grid.innerHTML = '';
+  if(items.length === 0){
+    emptyState.style.display = 'block';
+    emptyState.textContent = 'No matching covers found for this wallet.';
+    grid.style.display = 'none';
+    return;
+  }
+  emptyState.style.display = 'none';
+  grid.style.display = 'grid';
+
+  items.forEach(item => {
+    const img = extractImage(item);
+    if(!img) return;
+    const name = item?.content?.metadata?.name || 'Untitled';
+
+    const panel = document.createElement('div');
+    panel.className = 'panel';
+
+    const imgEl = document.createElement('img');
+    imgEl.src = img;
+    imgEl.alt = name;
+    imgEl.loading = 'lazy';
+    panel.appendChild(imgEl);
+
+    const tag = document.createElement('div');
+    tag.className = 'tag';
+    tag.textContent = name;
+    panel.appendChild(tag);
+
+    grid.appendChild(panel);
+  });
+}
+
+async function handleLoad(){
+  const owner = ownerInput.value.trim();
+  const apiKey = apiKeyInput.value.trim();
+  const collectionFilter = collectionInput.value.trim();
+
+  if(!owner){ setStatus('Enter a wallet address first.', true); return; }
+  if(!apiKey){ setStatus('Enter your Helius API key first.', true); return; }
+
+  loadBtn.disabled = true;
+  playBtn.disabled = true;
+  setStatus('Pulling assets from chain…');
+  countRow.style.display = 'none';
+  grid.innerHTML = '';
+  emptyState.style.display = 'none';
+  covers = [];
+
+  try{
+    const items = await fetchAssets(owner, apiKey);
+    let withImages = items.filter(extractImage);
+
+    if(collectionFilter){
+      withImages = withImages.filter(it => extractCollectionKey(it) === collectionFilter);
+    }
+
+    covers = withImages.map(item => ({
+      img: extractImage(item),
+      name: item?.content?.metadata?.name || 'Untitled'
+    }));
+
+    renderGrid(withImages);
+    countRow.style.display = 'flex';
+    countText.textContent = `${withImages.length} cover${withImages.length === 1 ? '' : 's'} found`;
+    ownerEcho.textContent = shortAddr(owner);
+    setStatus(items.length === 0 ? 'Wallet holds no assets on this key, or none returned.' : '');
+    playBtn.disabled = covers.length === 0;
+  }catch(err){
+    console.error(err);
+    setStatus(err.message || 'Something went wrong.', true);
+    emptyState.style.display = 'block';
+    emptyState.textContent = 'Could not load covers — see message above.';
+  }finally{
+    loadBtn.disabled = false;
+  }
+}
+
+function showSlide(i){
+  if(covers.length === 0) return;
+  ssIndex = (i + covers.length) % covers.length;
+  const c = covers[ssIndex];
+  ssImg.src = c.img;
+  ssImg.alt = c.name;
+  ssCap.textContent = c.name;
+  ssCounter.textContent = `${ssIndex + 1} / ${covers.length}`;
+}
+
+function stepSlide(delta){
+  showSlide(ssIndex + delta);
+}
+
+function startTimer(){
+  stopTimer();
+  const secs = Math.max(2, Math.min(60, Number(intervalInput.value) || 6));
+  ssTimer = setInterval(() => stepSlide(1), secs * 1000);
+}
+
+function stopTimer(){
+  if(ssTimer){ clearInterval(ssTimer); ssTimer = null; }
+}
+
+function setPlaying(playing){
+  ssPlaying = playing;
+  ssToggle.textContent = playing ? 'PAUSE' : 'PLAY';
+  if(playing) startTimer(); else stopTimer();
+}
+
+function openSlideshow(){
+  if(covers.length === 0) return;
+  showSlide(0);
+  slideshow.classList.add('open');
+  setPlaying(true);
+}
+
+function closeSlideshow(){
+  slideshow.classList.remove('open');
+  stopTimer();
+}
+
+loadBtn.addEventListener('click', handleLoad);
+playBtn.addEventListener('click', openSlideshow);
+ownerInput.addEventListener('keydown', e => { if(e.key === 'Enter') handleLoad(); });
+apiKeyInput.addEventListener('keydown', e => { if(e.key === 'Enter') handleLoad(); });
+
+ssClose.addEventListener('click', closeSlideshow);
+ssPrev.addEventListener('click', () => { stepSlide(-1); if(ssPlaying) startTimer(); });
+ssNext.addEventListener('click', () => { stepSlide(1); if(ssPlaying) startTimer(); });
+ssToggle.addEventListener('click', () => setPlaying(!ssPlaying));
+
+document.addEventListener('keydown', e => {
+  if(!slideshow.classList.contains('open')) return;
+  if(e.key === 'Escape') closeSlideshow();
+  else if(e.key === 'ArrowLeft'){ stepSlide(-1); if(ssPlaying) startTimer(); }
+  else if(e.key === 'ArrowRight'){ stepSlide(1); if(ssPlaying) startTimer(); }
+  else if(e.key === ' '){ e.preventDefault(); setPlaying(!ssPlaying); }
+});
+
+// Kiosk convenience: prefill the wallet address from ?wallet=<address>.
+// The API key is never accepted via URL and must always be typed in.
+(function prefillFromQuery(){
+  const params = new URLSearchParams(window.location.search);
+  const w = params.get('wallet');
+  if(w) ownerInput.value = w.trim();
+})();
+</script>
+
+<div class="wrap">
+  <footer>
+    <span>ZurCovers — a ZurVault project</span>
+    <span>Fan-built · Not affiliated with DC Comics, Warner Bros., or Candy Digital</span>
+  </footer>
+</div>
+
+</body>
+</html>
