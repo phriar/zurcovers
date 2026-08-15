@@ -40,11 +40,28 @@
     font-size:clamp(1.9rem,5vw,2.8rem); color:rgba(255,255,255,0.92); margin-top:10px;
   }
   header h1 span{ color:var(--gold); }
-  header .sub{ margin-top:10px; font-size:.68rem; letter-spacing:.05em; line-height:1.7; color:rgba(255,255,255,0.4); max-width:520px; }
+  header .sub{ margin-top:10px; font-size:.85rem; letter-spacing:.02em; line-height:1.7; color:rgba(255,255,255,0.55); max-width:560px; }
 
   .nav-links{ margin-top:16px; display:flex; gap:14px; flex-wrap:wrap; }
   .nav-links a{ font-size:.62rem; letter-spacing:.16em; text-transform:uppercase; color:rgba(143,111,232,0.6); text-decoration:none; border:1px solid rgba(143,111,232,0.2); padding:6px 14px; border-radius:2px; transition:all .15s; }
   .nav-links a:hover{ color:var(--gold); border-color:rgba(143,111,232,0.5); }
+
+  /* Two disclosures, kept visually distinct rather than merged into one
+     paragraph — a security instruction ("never share your private key")
+     and a legal/trust disclosure ("who this is/isn't affiliated with")
+     are different kinds of information and read better as separate boxes
+     a visitor can each individually skim. */
+  .disclosures{ position:relative; z-index:1; padding:16px 32px 4px; display:flex; flex-direction:column; gap:10px; }
+  .disclosure-box{
+    padding:12px 16px; border-radius:4px; font-size:.76rem; line-height:1.7;
+  }
+  .disclosure-box.warn{
+    border:1px solid rgba(224,122,95,0.3); background:rgba(224,122,95,0.07); color:rgba(255,255,255,0.65);
+  }
+  .disclosure-box.warn strong{ color:#e07a5f; font-weight:500; }
+  .disclosure-box.info{
+    border:1px solid rgba(77,232,255,0.2); background:rgba(77,232,255,0.05); color:rgba(255,255,255,0.5);
+  }
 
   .entry-panel{
     position:relative; z-index:1; padding:18px 32px; border-bottom:1px solid var(--border);
@@ -69,7 +86,7 @@
   .caveat{
     position:relative; z-index:1; margin:0 32px 16px; padding:10px 14px;
     border:1px solid rgba(77,232,255,0.18); border-radius:4px; background:rgba(77,232,255,0.05);
-    font-size:.6rem; line-height:1.7; color:rgba(255,255,255,0.45);
+    font-size:.72rem; line-height:1.7; color:rgba(255,255,255,0.5);
   }
 
   .grid{
@@ -96,6 +113,9 @@
   .card .price{ font-family:'DM Mono',monospace; font-size:.78rem; letter-spacing:.05em; color:rgba(255,255,255,0.9); }
   .card .price.unavailable{ color:rgba(255,255,255,0.3); }
   .card .floor-label{ font-family:'DM Mono',monospace; font-size:.5rem; letter-spacing:.1em; text-transform:uppercase; color:rgba(255,255,255,0.3); margin-top:2px; }
+  /* Same visual cue as ZurVault's listing/sales cards — a visitor should
+     never be surprised that clicking a card leaves this site. */
+  .card .me-tag{ font-family:'DM Mono',monospace; font-size:.62rem; letter-spacing:.05em; text-transform:uppercase; color:rgba(77,232,255,0.7); margin-top:4px; }
 
   .empty{ position:relative; z-index:1; padding:60px 32px; text-align:center; color:rgba(255,255,255,0.25); font-family:'Cormorant Garamond',serif; font-size:1.2rem; font-weight:300; line-height:1.6; }
 
@@ -116,6 +136,11 @@
     <a href="index.html">Home</a>
   </div>
 </header>
+
+<div class="disclosures">
+  <div class="disclosure-box warn"><strong>Never share your private key or seed phrase with anyone, including here.</strong> This page only ever needs a <strong>public</strong> wallet address — the same address anyone could already look up on a block explorer. It never asks for anything else.</div>
+  <div class="disclosure-box info">Unofficial fan project &mdash; not affiliated with, endorsed by, or sponsored by DC Comics, Warner Bros. Discovery, Candy Digital, or Magic Eden.</div>
+</div>
 
 <div class="entry-panel">
   <input type="text" id="wallet-input" placeholder="paste a public wallet address" autocapitalize="off" autocorrect="off" spellcheck="false">
@@ -240,16 +265,18 @@ function render(groups){
       const floorText = g.floor === null || g.floor === undefined
         ? (floorKnown ? 'no ME data' : '…')
         : `${g.floor.toFixed(4)} SOL`;
+      const pdpUrl = `https://magiceden.io/item-details/${item.mint}`;
       cards.push(`
-        <div class="card">
+        <a class="card" href="${esc(pdpUrl)}" target="_blank" rel="noopener">
           <img src="${esc(item.image)}" loading="lazy" onerror="this.style.opacity=0.2">
           <div class="body">
             <div class="sub">${esc(g.name)}</div>
             <div class="name">${esc(item.name)}</div>
             <div class="price ${g.floor ? '' : 'unavailable'}">${floorText}</div>
             <div class="floor-label">collection floor</div>
+            <div class="me-tag">View on Magic Eden &#8599;</div>
           </div>
-        </div>
+        </a>
       `);
     }
   }

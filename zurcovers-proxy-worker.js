@@ -108,6 +108,7 @@ function parseHeliusAsset(a) {
 async function fetchWalletAssets(address, env) {
   const rpcUrl = `${HELIUS_ORIGIN}?api-key=${env.HELIUS_API_KEY}`;
   const assets = [];
+  const seenMints = new Set(); // Helius's page-based pagination isn't guaranteed stable across requests if the wallet's asset set shifts mid-scan — dedupe by mint rather than trust page boundaries not to overlap.
   for (let page = 1; page <= WALLET_ASSET_MAX_PAGES; page++) {
     const res = await fetch(rpcUrl, {
       method: "POST",
@@ -127,12 +128,16 @@ async function fetchWalletAssets(address, env) {
     if (json.error) throw new Error(json.error.message || "Helius error");
     const items = (json.result && json.result.items) || [];
     for (const a of items) {
+      if (seenMints.has(a.id)) continue;
       const isNftLike =
         ["V1_NFT", "ProgrammableNFT", "V1_PRINT", "MplCoreAsset", "Custom"].includes(a.interface) ||
         (a.interface && a.interface.toLowerCase().includes("nft"));
       if (!isNftLike) continue;
       const parsed = parseHeliusAsset(a);
-      if (parsed.image) assets.push(parsed);
+      if (parsed.image) {
+        seenMints.add(a.id);
+        assets.push(parsed);
+      }
     }
     if (items.length < 1000) break;
   }

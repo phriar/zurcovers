@@ -41,14 +41,24 @@ html, body { width:100%; height:100%; background:var(--ink); overflow:hidden; }
 #entry > * { position:relative; z-index:1; }
 
 .e-wordmark { font-family:'DM Mono',monospace; font-size:.7rem; letter-spacing:.5em; color:rgba(255,255,255,0.25); text-transform:uppercase; margin-bottom:22px; text-decoration:none; }
-.e-tagline { font-family:'Cormorant Garamond',serif; font-size:clamp(1.8rem,5vw,2.6rem); font-weight:300; letter-spacing:.02em; color:rgba(255,255,255,0.92); margin-bottom:28px; text-align:center; line-height:1.15; }
+.e-tagline { font-family:'Cormorant Garamond',serif; font-size:clamp(2.1rem,6vw,3rem); font-weight:300; letter-spacing:.02em; color:rgba(255,255,255,0.92); margin-bottom:24px; text-align:center; line-height:1.15; }
 
 .e-disclaimer {
-  max-width:400px; margin-bottom:24px; padding:12px 16px;
+  max-width:420px; margin-bottom:14px; padding:12px 16px;
   border:1px solid rgba(77,232,255,0.2); border-radius:4px; background:rgba(77,232,255,0.05);
-  font-family:'DM Mono',monospace; font-size:.66rem; line-height:1.7; color:rgba(255,255,255,0.55); text-align:center;
+  font-family:'DM Mono',monospace; font-size:.78rem; line-height:1.7; color:rgba(255,255,255,0.6); text-align:center;
 }
-.e-disclaimer strong { color:rgba(255,255,255,0.75); font-weight:500; }
+.e-disclaimer strong { color:rgba(255,255,255,0.8); font-weight:500; }
+
+/* Security warning gets its own box, visually distinct from the legal/
+   trust disclosure below it — different kind of information, reads
+   better skimmed separately. */
+.e-warning {
+  max-width:420px; margin-bottom:14px; padding:12px 16px;
+  border:1px solid rgba(224,122,95,0.3); border-radius:4px; background:rgba(224,122,95,0.07);
+  font-family:'DM Mono',monospace; font-size:.78rem; line-height:1.7; color:rgba(255,255,255,0.65); text-align:center;
+}
+.e-warning strong { color:#e07a5f; font-weight:500; }
 
 .e-form { display:flex; flex-direction:column; align-items:center; gap:10px; width:100%; max-width:320px; }
 .e-input {
@@ -183,8 +193,12 @@ html, body { width:100%; height:100%; background:var(--ink); overflow:hidden; }
   <a href="index.html" style="text-decoration:none;"><div class="e-wordmark">zurcovers</div></a>
   <div class="e-tagline">Your covers.<br>Full screen.</div>
 
+  <div class="e-warning">
+    <strong>Never share your private key or seed phrase with anyone, including here.</strong> This page only ever needs a <strong>public</strong> wallet address — the same address anyone could already look up on a block explorer.
+  </div>
+
   <div class="e-disclaimer">
-    <strong>Public address only.</strong> Paste any Solana wallet's public address to view its NFT covers — no wallet connection, no signing, ever. Nothing here can move or approve anything.
+    Unofficial fan project &mdash; not affiliated with, endorsed by, or sponsored by DC Comics, Warner Bros. Discovery, Candy Digital, or Magic Eden. No wallet connection, no signing, ever &mdash; nothing here can move or approve anything.
   </div>
 
   <div class="e-form">
