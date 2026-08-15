@@ -138,6 +138,8 @@
   <h1>My <span>Wallet</span></h1>
   <div class="sub">Everything a public Solana wallet holds, grouped by collection, with the current Magic Eden floor price shown where that collection is still resolvable there. Public address only — no wallet connection, no signing.</div>
   <div class="nav-links">
+    <a href="collections.html">By Collection &amp; Rarity</a>
+    <a href="wallet-2.html">Shelf View</a>
     <a href="slideshow.html">Full-Screen Slideshow &#8599;</a>
     <a href="index.html">Home</a>
   </div>
@@ -262,16 +264,25 @@ async function loadWallet(address){
   setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Done.`);
 }
 
-// Copies of the same print (identical name, e.g. a mass-produced DC3
-// edition with no per-copy serial baked into it) collapse into one card
-// with a ×N badge. Individually-numbered editions (name ends "#123/1938",
-// same signal ZurVault's parseEdition() looks for) keep each copy's name
-// distinct, so this naturally does NOT collapse those — each stays its
-// own card, correctly.
+// Every copy of the same comic gets its own serial baked into the name
+// (confirmed live: "Superman '78 (2021-2022) #1 479" vs "...#1 2087") —
+// grouping by the exact name (the earlier approach) left every owned
+// copy showing separately, which isn't what "5 copies of the same comic"
+// should look like. Strip the trailing "(123/456)" edition marker or
+// bare trailing serial number before grouping, so copies of the same
+// print collapse into one card with a ×N badge regardless of which
+// specific serial each owned mint happens to be.
+function cleanTitle(name){
+  return String(name || '')
+    .replace(/\(\s*\d+\s*\/\s*\d+\s*\)\s*$/, '')
+    .replace(/\s+\d+\s*$/, '')
+    .trim();
+}
+
 function groupByName(items){
   const byName = new Map();
   for(const item of items){
-    const k = item.name || item.mint;
+    const k = cleanTitle(item.name) || item.mint;
     if(!byName.has(k)) byName.set(k, { representative: item, count: 0 });
     byName.get(k).count++;
   }
@@ -296,7 +307,7 @@ function render(groups){
           </div>
           <div class="body">
             <div class="sub">${esc(g.name)}</div>
-            <div class="name">${esc(item.name)}</div>
+            <div class="name">${esc(cleanTitle(item.name) || item.name)}</div>
             <div class="price ${g.floor ? '' : 'unavailable'}">${floorText}</div>
             <div class="floor-label">collection floor</div>
             <div class="me-tag">View on Magic Eden &#8599;</div>

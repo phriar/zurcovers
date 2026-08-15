@@ -164,6 +164,7 @@
   <div class="sub">Everything a public Solana wallet holds, arranged like a shop shelf instead of a grid — current Magic Eden floor price on the price tag. Public address only — no wallet connection, no signing.</div>
   <div class="nav-links">
     <a href="wallet.html">Classic Grid View</a>
+    <a href="collections.html">By Collection &amp; Rarity</a>
     <a href="slideshow.html">Full-Screen Slideshow &#8599;</a>
     <a href="index.html">Home</a>
   </div>
@@ -294,13 +295,22 @@ async function loadWallet(address){
   setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Done.`);
 }
 
-// Same "identical copies collapse into one card + count" grouping as
-// wallet.html — see that file's comment for why grouping by exact name
-// naturally leaves individually-numbered editions un-collapsed.
+// Same grouping as wallet.html — strips the trailing "(123/456)" edition
+// marker or bare trailing serial number before grouping, since every
+// owned copy of the same comic carries its own unique serial in the raw
+// name (confirmed live), so grouping by the exact name left every copy
+// showing separately instead of collapsing into one card + count.
+function cleanTitle(name){
+  return String(name || '')
+    .replace(/\(\s*\d+\s*\/\s*\d+\s*\)\s*$/, '')
+    .replace(/\s+\d+\s*$/, '')
+    .trim();
+}
+
 function groupByName(items){
   const byName = new Map();
   for(const item of items){
-    const k = item.name || item.mint;
+    const k = cleanTitle(item.name) || item.mint;
     if(!byName.has(k)) byName.set(k, { representative: item, count: 0 });
     byName.get(k).count++;
   }
@@ -325,7 +335,7 @@ function render(groups){
           <div class="price-tag ${g.floor ? '' : 'unavailable'}">${priceTagText}</div>
           <div class="caption">
             <div class="sub">${esc(g.name)}</div>
-            <div class="name">${esc(item.name)}</div>
+            <div class="name">${esc(cleanTitle(item.name) || item.name)}</div>
             <div class="me-tag">Magic Eden &#8599;</div>
           </div>
         </a>

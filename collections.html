@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0a0a0a">
+<title>My Collections — zurcovers</title>
+<meta name="description" content="Browse a public Solana wallet's DC digital comic covers by collection, drill into each to see rarity tiers owned and the current lowest listed price per rarity.">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  :root{
+    --ink:    #0a0a0a;
+    --gold:   #8f6fe8;
+    --deep:   #6b2fd6;
+    --cyan:   #4de8ff;
+    --border: rgba(255,255,255,0.07);
+  }
+
+  body{
+    background:var(--ink); color:#fff; min-height:100vh;
+    font-family:'DM Mono',monospace; -webkit-font-smoothing:antialiased;
+  }
+
+  #grain{
+    position:fixed; inset:0; z-index:0; pointer-events:none; opacity:0.025;
+    background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  header{
+    position:relative; z-index:1; padding:44px 32px 22px; border-bottom:1px solid var(--border);
+    background:radial-gradient(ellipse at top, rgba(107,47,214,0.16), transparent 60%);
+  }
+  header .brand{ font-size:.7rem; letter-spacing:.4em; color:rgba(255,255,255,0.22); text-transform:uppercase; }
+  header .brand a{ color:rgba(255,255,255,0.22); text-decoration:none; }
+  header .brand a:hover{ color:var(--gold); }
+  header h1{
+    font-family:'Cormorant Garamond',serif; font-weight:300; letter-spacing:.02em;
+    font-size:clamp(1.9rem,5vw,2.8rem); color:rgba(255,255,255,0.92); margin-top:10px;
+  }
+  header h1 span{ color:var(--gold); }
+  header .sub{ margin-top:10px; font-size:.85rem; letter-spacing:.02em; line-height:1.7; color:rgba(255,255,255,0.55); max-width:560px; }
+
+  .nav-links{ margin-top:16px; display:flex; gap:14px; flex-wrap:wrap; }
+  .nav-links a{ font-size:.62rem; letter-spacing:.16em; text-transform:uppercase; color:rgba(143,111,232,0.6); text-decoration:none; border:1px solid rgba(143,111,232,0.2); padding:6px 14px; border-radius:2px; transition:all .15s; }
+  .nav-links a:hover{ color:var(--gold); border-color:rgba(143,111,232,0.5); }
+
+  .disclosures{ position:relative; z-index:1; padding:16px 32px 4px; display:flex; flex-direction:column; gap:10px; }
+  .disclosure-box{ padding:12px 16px; border-radius:4px; font-size:.76rem; line-height:1.7; }
+  .disclosure-box.warn{ border:1px solid rgba(224,122,95,0.3); background:rgba(224,122,95,0.07); color:rgba(255,255,255,0.65); }
+  .disclosure-box.warn strong{ color:#e07a5f; font-weight:500; }
+  .disclosure-box.info{ border:1px solid rgba(77,232,255,0.2); background:rgba(77,232,255,0.05); color:rgba(255,255,255,0.5); }
+
+  .entry-panel{
+    position:relative; z-index:1; padding:18px 32px; border-bottom:1px solid var(--border);
+    display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+  }
+  .entry-panel input{
+    flex:1; min-width:220px; background:rgba(0,0,0,0.5); border:1px solid var(--border); color:rgba(255,255,255,0.85);
+    font-family:'DM Mono',monospace; font-size:.72rem; padding:11px 13px; border-radius:2px; outline:none;
+  }
+  .entry-panel input:focus{ border-color:rgba(143,111,232,0.5); }
+  .entry-panel button{
+    background:linear-gradient(135deg, var(--deep), var(--gold)); border:1px solid rgba(143,111,232,0.5); color:#fff;
+    font-family:'DM Mono',monospace; font-size:.62rem; letter-spacing:.16em; text-transform:uppercase;
+    padding:11px 18px; border-radius:2px; cursor:pointer; transition:filter .15s;
+  }
+  .entry-panel button:hover{ filter:brightness(1.12); }
+
+  #status{ position:relative; z-index:1; padding:16px 32px; font-size:.62rem; letter-spacing:.08em; color:rgba(255,255,255,0.35); text-transform:uppercase; }
+  #status.err{ color:#e07a5f; }
+  #status .dot{ display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--cyan); margin-right:8px; }
+
+  .caveat{
+    position:relative; z-index:1; margin:0 32px 16px; padding:10px 14px;
+    border:1px solid rgba(77,232,255,0.18); border-radius:4px; background:rgba(77,232,255,0.05);
+    font-size:.72rem; line-height:1.7; color:rgba(255,255,255,0.5);
+  }
+
+  .back-btn{
+    position:relative; z-index:1; margin:16px 32px 0; display:inline-flex; align-items:center; gap:6px;
+    background:none; border:1px solid var(--border); color:rgba(255,255,255,0.6);
+    font-family:'DM Mono',monospace; font-size:.62rem; letter-spacing:.14em; text-transform:uppercase;
+    padding:8px 16px; border-radius:2px; cursor:pointer; transition:all .15s;
+  }
+  .back-btn:hover{ color:var(--gold); border-color:rgba(143,111,232,0.5); }
+  .detail-title{
+    position:relative; z-index:1; margin:16px 32px 0; font-family:'Cormorant Garamond',serif; font-weight:300;
+    font-size:clamp(1.6rem,4vw,2.2rem); color:rgba(255,255,255,0.9);
+  }
+
+  /* LEVEL 1 — collection grid */
+  .grid{
+    position:relative; z-index:1;
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr));
+    gap:1px; background:var(--border); padding:1px 32px 60px; margin-top:1px;
+  }
+  .coll-card{
+    background:var(--ink); overflow:hidden; text-decoration:none; color:#fff; cursor:pointer;
+    display:flex; flex-direction:column; transition:background .15s; border:none; text-align:left; font-family:inherit;
+  }
+  .coll-card:hover{ background:rgba(255,255,255,0.03); }
+  .coll-card img{ width:100%; aspect-ratio:2/3; object-fit:cover; background:rgba(255,255,255,0.03); display:block; }
+  .coll-card .body{ padding:12px 14px 16px; }
+  .coll-card .name{
+    font-family:'Cormorant Garamond',serif; font-weight:400; font-size:1.1rem; line-height:1.25;
+    color:rgba(255,255,255,0.85); margin-bottom:6px;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+  }
+  .coll-card .count{ font-family:'DM Mono',monospace; font-size:.66rem; letter-spacing:.05em; color:rgba(255,255,255,0.4); }
+  .coll-card .arrow{ font-family:'DM Mono',monospace; font-size:.62rem; color:rgba(143,111,232,0.7); margin-top:6px; }
+
+  /* LEVEL 2 — comics within a collection, each with a rarity breakdown */
+  .comics-list{ position:relative; z-index:1; padding:20px 32px 60px; display:flex; flex-direction:column; gap:1px; background:var(--border); margin-top:16px; }
+  .comic-row{ background:var(--ink); display:flex; gap:16px; padding:16px; }
+  .comic-row img{ width:70px; height:105px; object-fit:cover; border-radius:2px; flex-shrink:0; background:rgba(255,255,255,0.03); }
+  .comic-row .info{ flex:1; min-width:0; }
+  .comic-row .name{ font-family:'Cormorant Garamond',serif; font-size:1.25rem; line-height:1.25; color:rgba(255,255,255,0.9); margin-bottom:10px; }
+  .rarity-rows{ display:flex; flex-direction:column; gap:6px; }
+  .rarity-row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .rarity-badge{
+    font-family:'DM Mono',monospace; font-size:.62rem; letter-spacing:.1em; text-transform:uppercase;
+    padding:3px 10px; border-radius:10px; border:1px solid; white-space:nowrap;
+  }
+  .rarity-common     { color:#c2c6cc; border-color:rgba(194,198,204,0.4); background:rgba(194,198,204,0.08); }
+  .rarity-uncommon   { color:#4ade80; border-color:rgba(74,222,128,0.4); background:rgba(74,222,128,0.08); }
+  .rarity-rare       { color:var(--cyan); border-color:rgba(77,232,255,0.4); background:rgba(77,232,255,0.08); }
+  .rarity-epic       { color:var(--gold); border-color:rgba(143,111,232,0.5); background:rgba(143,111,232,0.1); }
+  .rarity-legendary  { color:#fbbf24; border-color:rgba(251,191,36,0.5); background:rgba(251,191,36,0.1); }
+  .rarity-none       { color:rgba(255,255,255,0.5); border-color:var(--border); background:rgba(255,255,255,0.03); }
+  .rarity-owned{ font-family:'DM Mono',monospace; font-size:.66rem; color:rgba(255,255,255,0.4); }
+  .rarity-price{ font-family:'DM Mono',monospace; font-size:.72rem; color:rgba(255,255,255,0.85); }
+  .rarity-price.unavailable{ color:rgba(255,255,255,0.3); }
+  .rarity-link{ font-family:'DM Mono',monospace; font-size:.6rem; letter-spacing:.05em; text-transform:uppercase; color:rgba(77,232,255,0.7); text-decoration:none; margin-left:auto; }
+  .rarity-link:hover{ color:var(--cyan); }
+
+  .empty{ position:relative; z-index:1; padding:60px 32px; text-align:center; color:rgba(255,255,255,0.25); font-family:'Cormorant Garamond',serif; font-size:1.2rem; font-weight:300; line-height:1.6; }
+
+  footer{ position:relative; z-index:1; padding:28px 32px 44px; text-align:center; font-size:.5rem; letter-spacing:.12em; color:rgba(255,255,255,0.15); text-transform:uppercase; }
+  footer a{ color:rgba(143,111,232,0.5); text-decoration:none; }
+  footer a:hover{ color:var(--gold); }
+</style>
+</head>
+<body>
+<div id="grain"></div>
+
+<header>
+  <div class="brand"><a href="index.html">zurcovers</a> / My Collections</div>
+  <h1>My <span>Collections</span></h1>
+  <div class="sub">Browse a public Solana wallet's DC covers by collection. Click a collection to see which comics and rarity tiers you own there, and the current lowest listed price for that specific rarity on Magic Eden.</div>
+  <div class="nav-links">
+    <a href="wallet.html">Classic Grid</a>
+    <a href="wallet-2.html">Shelf View</a>
+    <a href="slideshow.html">Full-Screen Slideshow &#8599;</a>
+    <a href="index.html">Home</a>
+  </div>
+</header>
+
+<div class="disclosures">
+  <div class="disclosure-box warn"><strong>Never share your private key or seed phrase with anyone, including here.</strong> This page only ever needs a <strong>public</strong> wallet address — the same address anyone could already look up on a block explorer. It never asks for anything else.</div>
+  <div class="disclosure-box info">Unofficial fan project &mdash; not affiliated with, endorsed by, or sponsored by DC Comics, Warner Bros. Discovery, Candy Digital, or Magic Eden.</div>
+</div>
+
+<div class="entry-panel">
+  <input type="text" id="wallet-input" placeholder="paste a public wallet address" autocapitalize="off" autocorrect="off" spellcheck="false">
+  <button id="load-btn">Load Wallet</button>
+</div>
+
+<div id="status"></div>
+<div class="caveat" id="caveat" style="display:none">
+  Small/unfamiliar collection entries in a wallet are often unsolicited airdrop NFTs, not anything you acquired — Magic Eden simply not recognizing one is common and not itself a red flag. Never interact with anything claiming you need to "claim" a reward.
+</div>
+
+<div id="collections-view" class="grid"></div>
+
+<div id="detail-view" style="display:none">
+  <button class="back-btn" id="back-btn">&#8592; All Collections</button>
+  <div class="detail-title" id="detail-title"></div>
+  <div class="comics-list" id="comics-list"></div>
+</div>
+
+<footer>
+  Wallet data via Helius (server-side) · Listing prices via Magic Eden, where resolvable · <a href="index.html">zurcovers.com</a>
+</footer>
+
+<script>
+const ME_PROXY_BASE = "https://zurcovers-proxy.stholt.workers.dev";
+const ME_BASE = ME_PROXY_BASE + "/v2";
+const WALLET_KEY = 'zurcovers_wallet';
+const SOL_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
+const statusEl = document.getElementById('status');
+const caveatEl = document.getElementById('caveat');
+const collectionsViewEl = document.getElementById('collections-view');
+const detailViewEl = document.getElementById('detail-view');
+const detailTitleEl = document.getElementById('detail-title');
+const comicsListEl = document.getElementById('comics-list');
+const backBtnEl = document.getElementById('back-btn');
+const walletInputEl = document.getElementById('wallet-input');
+const loadBtnEl = document.getElementById('load-btn');
+
+let groups = {}; // collectionKey -> { name, items }
+
+function setStatus(msg, isErr){
+  statusEl.innerHTML = (isErr ? '' : '<span class="dot"></span>') + msg;
+  statusEl.classList.toggle('err', !!isErr);
+}
+
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+
+// Every owned copy of the same comic carries its own serial baked into
+// the name (confirmed live: "Superman '78 (2021-2022) #1 479" vs
+// "...#1 2087") — strip the trailing "(123/456)" edition marker or bare
+// trailing serial number so copies of the same print group together.
+function cleanTitle(name){
+  return String(name || '')
+    .replace(/\(\s*\d+\s*\/\s*\d+\s*\)\s*$/, '')
+    .replace(/\s+\d+\s*$/, '')
+    .trim();
+}
+
+// Same rarity-string normalization as the Worker/ZurVault — "(40.400)"
+// weight suffixes stripped, CORE/BASE/STANDARD aliased to Common.
+const RARITY_ALIASES = { common:'common', core:'common', base:'common', standard:'common', uncommon:'uncommon', rare:'rare', epic:'epic', legendary:'legendary' };
+const RARITY_LABELS = { common:'Common', uncommon:'Uncommon', rare:'Rare', epic:'Epic', legendary:'Legendary' };
+function normalizeRarity(attributes){
+  const attr = (attributes || []).find(a => /^rarity$/i.test(a?.trait_type || ''));
+  if(!attr) return null;
+  const raw = String(attr.value || '').trim();
+  const match = /^(.*?)\s*\(([\d.]+)\)\s*$/.exec(raw);
+  const cleaned = (match ? match[1] : raw).trim().toLowerCase();
+  const key = RARITY_ALIASES[cleaned];
+  return key ? RARITY_LABELS[key] : null;
+}
+
+async function resolveMESymbol(mintAddress){
+  try{
+    const res = await fetch(`${ME_BASE}/tokens/${mintAddress}`);
+    if(!res.ok) return null;
+    const data = await res.json();
+    const collectionField = data?.collection;
+    return (typeof collectionField === 'string')
+      ? collectionField
+      : (collectionField?.symbol || collectionField?.name || data?.collectionSymbol || null);
+  }catch(e){
+    return null;
+  }
+}
+
+// Current lowest listed price per rarity tier, from this collection's
+// active listings (first 100 — a reasonable approximation of "current
+// lowest," not an exhaustive scan of every page for very large
+// collections). '__none__' holds the min price among listings with no
+// rarity trait at all, for collections that don't use rarity tiers.
+async function fetchListingsRarityFloors(symbol){
+  try{
+    const res = await fetch(`${ME_BASE}/collections/${symbol}/listings?offset=0&limit=100`);
+    if(!res.ok) return {};
+    const data = await res.json();
+    const map = {};
+    for(const item of (Array.isArray(data) ? data : [])){
+      const price = item?.price;
+      if(typeof price !== 'number') continue;
+      const rarity = normalizeRarity(item?.token?.attributes) || '__none__';
+      if(!(rarity in map) || price < map[rarity]) map[rarity] = price;
+    }
+    return map;
+  }catch(e){
+    return {};
+  }
+}
+
+async function fetchOverallFloor(symbol){
+  try{
+    const res = await fetch(`${ME_BASE}/collections/${symbol}/stats`);
+    if(!res.ok) return null;
+    const data = await res.json();
+    return typeof data?.floorPrice === 'number' ? data.floorPrice / 1e9 : null;
+  }catch(e){
+    return null;
+  }
+}
+
+async function loadWallet(address){
+  collectionsViewEl.innerHTML = '';
+  detailViewEl.style.display = 'none';
+  collectionsViewEl.style.display = 'grid';
+  caveatEl.style.display = 'none';
+  setStatus('Fetching wallet assets…');
+
+  let json;
+  try{
+    const res = await fetch(`${ME_BASE}/wallet-assets?address=${encodeURIComponent(address)}`);
+    if(!res.ok){
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(errJson.error === 'rate_limited' ? 'Too many lookups from here right now — try again in a bit.' : `HTTP ${res.status}`);
+    }
+    json = await res.json();
+  }catch(e){
+    setStatus('Could not load that wallet: ' + e.message, true);
+    return;
+  }
+
+  const assets = json.assets || [];
+  if(assets.length === 0){
+    setStatus('No NFTs found in this wallet.', true);
+    return;
+  }
+
+  groups = {};
+  for(const a of assets){
+    const key = a.collectionKey || a.collectionName || a.mint;
+    if(!groups[key]) groups[key] = { name: a.collectionName || 'Unknown Collection', items: [] };
+    groups[key].items.push(a);
+  }
+
+  caveatEl.style.display = 'block';
+  renderCollections();
+  setStatus(`${assets.length} NFTs across ${Object.keys(groups).length} collection(s).`);
+}
+
+function renderCollections(){
+  const keys = Object.keys(groups).sort((a, b) => groups[b].items.length - groups[a].items.length);
+  collectionsViewEl.innerHTML = keys.map(key => {
+    const g = groups[key];
+    const distinctComics = new Set(g.items.map(i => cleanTitle(i.name) || i.mint)).size;
+    return `
+      <button class="coll-card" data-key="${esc(key)}">
+        <img src="${esc(g.items[0].image)}" loading="lazy" onerror="this.style.opacity=0.2">
+        <div class="body">
+          <div class="name">${esc(g.name)}</div>
+          <div class="count">${distinctComics} comic${distinctComics !== 1 ? 's' : ''} &middot; ${g.items.length} cop${g.items.length !== 1 ? 'ies' : 'y'} owned</div>
+          <div class="arrow">See rarities &amp; prices &#8594;</div>
+        </div>
+      </button>
+    `;
+  }).join('');
+
+  collectionsViewEl.querySelectorAll('.coll-card').forEach(btn => {
+    btn.addEventListener('click', () => openCollection(btn.dataset.key));
+  });
+}
+
+function rarityClass(label){
+  return label ? 'rarity-' + label.toLowerCase() : 'rarity-none';
+}
+
+async function openCollection(key){
+  const g = groups[key];
+  if(!g) return;
+
+  collectionsViewEl.style.display = 'none';
+  detailViewEl.style.display = 'block';
+  detailTitleEl.textContent = g.name;
+  comicsListEl.innerHTML = '';
+  setStatus('Resolving Magic Eden symbol…');
+
+  const symbol = await resolveMESymbol(g.items[0].mint);
+  let rarityFloors = {};
+  let overallFloor = null;
+  if(symbol){
+    setStatus('Fetching current listings…');
+    [rarityFloors, overallFloor] = await Promise.all([
+      fetchListingsRarityFloors(symbol),
+      fetchOverallFloor(symbol),
+    ]);
+  }
+
+  // Group owned items in this collection by comic title, and within
+  // each title, by rarity tier (a title can in principle have owned
+  // copies across more than one rarity, if that print run itself has
+  // rarity variants sharing the same base name).
+  const byTitle = new Map();
+  for(const item of g.items){
+    const title = cleanTitle(item.name) || item.mint;
+    if(!byTitle.has(title)) byTitle.set(title, { representative: item, rarityCounts: new Map() });
+    const entry = byTitle.get(title);
+    const rarity = normalizeRarity(item.attributes); // null = no rarity trait on this collection
+    entry.rarityCounts.set(rarity, (entry.rarityCounts.get(rarity) || 0) + 1);
+  }
+
+  comicsListEl.innerHTML = [...byTitle.entries()].map(([title, entry]) => {
+    const rarityRows = [...entry.rarityCounts.entries()].map(([rarity, count]) => {
+      let priceHtml;
+      if(rarity === null){
+        // This collection doesn't use rarity tiers — the overall floor
+        // is the right single number, not a per-rarity one.
+        priceHtml = overallFloor !== null
+          ? `<span class="rarity-price">${overallFloor.toFixed(4)} SOL floor</span>`
+          : `<span class="rarity-price unavailable">no ME data</span>`;
+      } else {
+        const floor = rarityFloors[rarity];
+        priceHtml = typeof floor === 'number'
+          ? `<span class="rarity-price">${floor.toFixed(4)} SOL lowest listed</span>`
+          : `<span class="rarity-price unavailable">no active ${esc(rarity)} listings</span>`;
+      }
+      const pdpUrl = `https://magiceden.io/item-details/${entry.representative.mint}`;
+      return `
+        <div class="rarity-row">
+          <span class="rarity-badge ${rarityClass(rarity)}">${rarity ? esc(rarity) : 'No rarity data'}</span>
+          <span class="rarity-owned">you own &times;${count}</span>
+          ${priceHtml}
+          <a class="rarity-link" href="${esc(pdpUrl)}" target="_blank" rel="noopener">Magic Eden &#8599;</a>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="comic-row">
+        <img src="${esc(entry.representative.image)}" loading="lazy" onerror="this.style.opacity=0.2">
+        <div class="info">
+          <div class="name">${esc(title)}</div>
+          <div class="rarity-rows">${rarityRows}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  setStatus(symbol
+    ? `${byTitle.size} comic(s) in ${g.name}.`
+    : `${byTitle.size} comic(s) in ${g.name} — could not resolve a Magic Eden symbol for this collection, prices unavailable.`,
+    !symbol
+  );
+}
+
+backBtnEl.addEventListener('click', () => {
+  detailViewEl.style.display = 'none';
+  collectionsViewEl.style.display = 'grid';
+  setStatus(`${Object.values(groups).reduce((n, g) => n + g.items.length, 0)} NFTs across ${Object.keys(groups).length} collection(s).`);
+});
+
+function go(){
+  const addr = walletInputEl.value.trim();
+  if(!SOL_ADDRESS_RE.test(addr)){
+    setStatus("That doesn't look like a valid Solana address.", true);
+    return;
+  }
+  localStorage.setItem(WALLET_KEY, addr);
+  history.replaceState(null, '', '?wallet=' + encodeURIComponent(addr));
+  loadWallet(addr);
+}
+loadBtnEl.addEventListener('click', go);
+walletInputEl.addEventListener('keydown', (e) => { if(e.key === 'Enter') go(); });
+
+(function init(){
+  const urlWallet = new URLSearchParams(window.location.search).get('wallet');
+  const saved = localStorage.getItem(WALLET_KEY);
+  const addr = (urlWallet && SOL_ADDRESS_RE.test(urlWallet)) ? urlWallet : saved;
+  if(addr){
+    walletInputEl.value = addr;
+    loadWallet(addr);
+  } else {
+    setStatus('Paste a public wallet address above to get started.');
+  }
+})();
+</script>
+</body>
+</html>
