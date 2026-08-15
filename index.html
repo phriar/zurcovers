@@ -3,7 +3,9 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>ZurCovers — Slideshow</title>
+<meta name="theme-color" content="#0B0D12">
+<title>ZurCovers — DC Digital Comic Cover Display</title>
+<meta name="description" content="A fan-built companion to zurvault.com for displaying and slideshowing the DC digital comic covers a Solana wallet holds — read-only, no wallet connection.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -13,7 +15,6 @@
     --cyan:#2DE6D0;
     --gold:#E8B24D;
     --cream:#F3EFE6;
-    --red:#E5484D;
     --line: rgba(243,239,230,0.12);
   }
   *{box-sizing:border-box;}
@@ -63,20 +64,52 @@
   .sub{
     color:rgba(243,239,230,0.65);
     font-size:15px;
-    max-width:560px;
+    max-width:620px;
     line-height:1.5;
   }
 
-  .ticket{
-    position:relative;
+  section{ margin-bottom:36px; }
+  .section-label{
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px;
+    letter-spacing:0.14em;
+    text-transform:uppercase;
+    color:var(--cyan);
+    margin-bottom:14px;
+    display:block;
+  }
+  .explain{
     background:var(--ink-2);
     border:1px solid var(--line);
     border-radius:4px;
-    padding:24px 24px 20px;
-    margin-bottom:20px;
-    overflow:hidden;
+    padding:22px 24px;
+    font-size:14px;
+    line-height:1.7;
+    color:rgba(243,239,230,0.75);
   }
-  .ticket::before{
+  .explain p{ margin:0 0 14px; }
+  .explain p:last-child{ margin-bottom:0; }
+  .explain b{ color:var(--cream); }
+  .explain a{ text-decoration:underline; text-underline-offset:2px; }
+
+  .links{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+    gap:14px;
+  }
+  .link-card{
+    position:relative;
+    display:block;
+    background:var(--ink-2);
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:22px 22px 20px;
+    text-decoration:none;
+    overflow:hidden;
+    transition:border-color 0.15s, transform 0.1s;
+  }
+  .link-card:hover{ border-color:var(--cyan); transform:translateY(-1px); }
+  .link-card::before{
     content:"";
     position:absolute;
     left:0; top:0; bottom:0;
@@ -86,77 +119,34 @@
     );
     opacity:0.5;
   }
-  .ticket-label{
+  .link-card .kicker{
     font-family:'JetBrains Mono', monospace;
     font-size:11px;
-    letter-spacing:0.14em;
+    letter-spacing:0.1em;
     text-transform:uppercase;
-    color:var(--cyan);
-    margin-bottom:14px;
+    color:var(--gold);
     display:block;
+    margin-bottom:8px;
   }
-  .field{ margin-bottom:14px; }
-  .field label{
-    display:block;
-    font-family:'JetBrains Mono', monospace;
-    font-size:11px;
-    color:rgba(243,239,230,0.55);
-    margin-bottom:6px;
-    letter-spacing:0.04em;
-  }
-  .field input{
-    width:100%;
-    background:var(--ink);
-    border:1px solid var(--line);
-    color:var(--cream);
-    font-family:'JetBrains Mono', monospace;
-    font-size:13px;
-    padding:11px 12px;
-    border-radius:3px;
-    outline:none;
-    transition:border-color 0.15s;
-  }
-  .field input::placeholder{ color:rgba(243,239,230,0.28); }
-  .field input:focus{ border-color:var(--cyan); }
-  .field .hint{
-    font-size:11px;
-    color:rgba(243,239,230,0.4);
-    margin-top:5px;
-  }
-
-  .row{ display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; }
-  .row .field{ flex:1; min-width:200px; }
-  .row .field.narrow{ flex:0 0 140px; min-width:120px; }
-
-  .btn-row{ display:flex; gap:10px; flex-wrap:wrap; }
-
-  button{
+  .link-card h2{
     font-family:'Oswald',sans-serif;
     font-weight:600;
-    font-size:14px;
-    letter-spacing:0.06em;
-    text-transform:uppercase;
-    border:none;
-    padding:12px 22px;
-    border-radius:3px;
-    cursor:pointer;
-    transition:transform 0.1s, box-shadow 0.15s;
+    font-size:22px;
+    color:var(--cream);
+    margin:0 0 8px;
   }
-  button.load{ background:var(--cyan); color:var(--ink); }
-  button.load:hover{ box-shadow:0 0 0 3px rgba(45,230,208,0.2); }
-  button.play{ background:var(--gold); color:var(--ink); }
-  button.play:hover{ box-shadow:0 0 0 3px rgba(232,178,77,0.25); }
-  button:disabled{ opacity:0.5; cursor:not-allowed; }
-  button:active{ transform:translateY(1px); }
-
-  .status{
+  .link-card p{
+    font-size:13px;
+    line-height:1.55;
+    color:rgba(243,239,230,0.6);
+    margin:0 0 14px;
+  }
+  .link-card .go{
     font-family:'JetBrains Mono', monospace;
     font-size:12px;
-    margin-top:14px;
-    color:rgba(243,239,230,0.6);
-    min-height:16px;
+    letter-spacing:0.06em;
+    color:var(--cyan);
   }
-  .status.err{ color:var(--red); }
 
   .disclaimer{
     font-size:12px;
@@ -166,114 +156,8 @@
     border-left:3px solid var(--gold);
     padding:14px 16px;
     border-radius:3px;
-    margin-bottom:36px;
   }
   .disclaimer b{ color:var(--gold); }
-
-  .count-row{
-    display:flex;
-    justify-content:space-between;
-    align-items:baseline;
-    margin-bottom:16px;
-    font-family:'JetBrains Mono', monospace;
-    font-size:12px;
-    color:rgba(243,239,230,0.5);
-    letter-spacing:0.04em;
-  }
-  .grid{
-    display:grid;
-    grid-template-columns:repeat(auto-fill,minmax(160px,1fr));
-    gap:3px;
-    background:var(--line);
-    border:1px solid var(--line);
-  }
-  .panel{
-    position:relative;
-    background:var(--cream);
-    aspect-ratio:2/3;
-    overflow:hidden;
-  }
-  .panel img{ width:100%; height:100%; object-fit:cover; display:block; }
-  .panel .tag{
-    position:absolute;
-    bottom:0; left:0; right:0;
-    background:linear-gradient(to top, rgba(0,0,0,0.85), transparent);
-    color:#fff;
-    font-family:'Oswald',sans-serif;
-    font-size:12px;
-    font-weight:500;
-    padding:16px 8px 8px;
-    line-height:1.25;
-  }
-
-  .empty{
-    text-align:center;
-    padding:60px 20px;
-    color:rgba(243,239,230,0.4);
-    font-family:'JetBrains Mono', monospace;
-    font-size:13px;
-  }
-
-  /* --- slideshow overlay --- */
-  .slideshow{
-    position:fixed; inset:0;
-    background:#000;
-    display:none;
-    align-items:center;
-    justify-content:center;
-    z-index:100;
-  }
-  .slideshow.open{ display:flex; }
-  .slideshow img{
-    max-width:92vw;
-    max-height:82vh;
-    border-radius:4px;
-    box-shadow:0 20px 60px rgba(0,0,0,0.6);
-    user-select:none;
-  }
-  .slideshow .cap{
-    position:absolute;
-    bottom:74px; left:0; right:0;
-    text-align:center;
-    font-family:'Oswald',sans-serif;
-    font-size:16px;
-    color:var(--cream);
-  }
-  .slideshow .counter{
-    position:absolute;
-    top:22px; left:24px;
-    font-family:'JetBrains Mono', monospace;
-    font-size:12px;
-    color:rgba(243,239,230,0.6);
-    letter-spacing:0.06em;
-  }
-  .slideshow .close{
-    position:absolute;
-    top:20px; right:24px;
-    color:var(--cream);
-    font-family:'JetBrains Mono', monospace;
-    font-size:13px;
-    cursor:pointer;
-    letter-spacing:0.08em;
-  }
-  .slideshow .controls{
-    position:absolute;
-    bottom:20px; left:0; right:0;
-    display:flex;
-    justify-content:center;
-    align-items:center;
-    gap:18px;
-  }
-  .slideshow .controls button{
-    background:transparent;
-    border:1px solid var(--line);
-    color:var(--cream);
-    font-family:'JetBrains Mono', monospace;
-    font-size:12px;
-    padding:9px 16px;
-    letter-spacing:0.06em;
-  }
-  .slideshow .controls button:hover{ border-color:var(--cyan); color:var(--cyan); }
 
   footer{
     margin-top:60px;
@@ -287,6 +171,8 @@
     flex-wrap:wrap;
     gap:8px;
   }
+  footer a{ color:rgba(45,230,208,0.7); text-decoration:none; }
+  footer a:hover{ color:var(--cyan); }
 </style>
 </head>
 <body>
@@ -295,305 +181,45 @@
 
   <header class="hero">
     <span class="eyebrow">ZurCovers · Reader's Vault</span>
-    <h1>Cover <span>Slideshow</span></h1>
-    <p class="sub">Paste a Solana wallet address to build an auto-advancing, fullscreen display of the digital comic covers it holds — sourced from licensed collections on Candy Digital. No wallet connection, no signature, read-only.</p>
+    <h1>Your <span>DC</span> covers,<br/>pulled from chain.</h1>
+    <p class="sub">A fan-built companion to zurvault.com — read-only tools for displaying the DC digital comic covers a Solana wallet already holds. No wallet connection, no signature, no transaction.</p>
   </header>
 
-  <div class="ticket">
-    <span class="ticket-label">☐ Reader Lookup — No. 002</span>
-
-    <div class="row">
-      <div class="field">
-        <label for="owner">Solana Wallet Address (public key)</label>
-        <input id="owner" type="text" placeholder="e.g. 7NWgPbshWRR1jxhN9mXkhDS4kzKBhp8rSFFYDkVWU9bb" autocomplete="off" spellcheck="false" />
-        <div class="hint">This is your public address — safe to paste, viewable by anyone already.</div>
-      </div>
+  <section>
+    <span class="section-label">☐ What's here</span>
+    <div class="explain">
+      <p><b>zurvault.com</b> is the original — a fan-built listings feed, collection browser, and price tracker for DC digital comic NFTs on Solana, pulling live data from Magic Eden and licensed Candy Digital drops. Browse, price-check, and find your next cover there.</p>
+      <p><b>zurcovers.com</b> is where a wallet's own held covers come to life: paste a public address and Helius API key (session-only, never stored) to pull every DC cover that wallet holds, either as a static grid or as an auto-advancing fullscreen slideshow. It's currently DC-focused, same as zurvault — a Spawn/OddKey version may follow later.</p>
     </div>
+  </section>
 
-    <div class="row">
-      <div class="field">
-        <label for="apikey">Helius API Key (session only)</label>
-        <input id="apikey" type="password" placeholder="paste your Helius API key" autocomplete="off" spellcheck="false" />
-        <div class="hint">Used only in this browser tab. Never sent anywhere else, never stored, never put in the URL.</div>
-      </div>
-      <div class="field">
-        <label for="collection">Collection Filter — optional (group key)</label>
-        <input id="collection" type="text" placeholder="e.g. Candy DC collection address" autocomplete="off" spellcheck="false" />
-        <div class="hint">Leave blank to show every NFT the wallet holds with an image.</div>
-      </div>
-      <div class="field narrow">
-        <label for="interval">Seconds / slide</label>
-        <input id="interval" type="number" min="2" max="60" step="1" value="6" />
-      </div>
+  <section>
+    <span class="section-label">☐ Tools</span>
+    <div class="links">
+      <a class="link-card" href="reader.html">
+        <span class="kicker">Reader Lookup — No. 001</span>
+        <h2>My Assets</h2>
+        <p>Paste a wallet address and browse every held DC cover as a static grid, click to zoom.</p>
+        <span class="go">Open Assets →</span>
+      </a>
+      <a class="link-card" href="slideshow.html">
+        <span class="kicker">Reader Lookup — No. 002</span>
+        <h2>My Slideshow</h2>
+        <p>Same wallet lookup, then an auto-advancing fullscreen display — good for a kiosk or a second screen.</p>
+        <span class="go">Open Slideshow →</span>
+      </a>
     </div>
-
-    <div class="btn-row">
-      <button class="load" id="loadBtn">Pull Covers</button>
-      <button class="play" id="playBtn" disabled>▶ Start Slideshow</button>
-    </div>
-    <div class="status" id="status"></div>
-  </div>
+  </section>
 
   <div class="disclaimer">
-    <b>Fan-built, unofficial project.</b> ZurCovers is not affiliated with, endorsed by, or sponsored by DC Comics, Warner Bros. Discovery, or Candy Digital. This is a read-only display tool: it queries the public Solana blockchain for assets already owned by the wallet address you provide and cycles through their cover art. It never requests a wallet connection, never asks for a signature, and cannot move, sell, or modify anything you own. A wallet address can be pre-filled via <code>?wallet=</code> in the URL for kiosk-style setups — the API key is never accepted this way and must always be typed into the field above.
+    <b>Fan-built, unofficial project.</b> ZurCovers is not affiliated with, endorsed by, or sponsored by DC Comics, Warner Bros. Discovery, or Candy Digital. Every tool here is read-only: it queries the public Solana blockchain for assets already owned by the wallet address you provide. It never requests a wallet connection, never asks for a signature, and cannot move, sell, or modify anything you own.
   </div>
 
-  <div class="count-row" id="countRow" style="display:none;">
-    <span id="countText"></span>
-    <span id="ownerEcho"></span>
-  </div>
-
-  <div class="grid" id="grid"></div>
-  <div class="empty" id="emptyState" style="display:none;">No covers loaded yet — enter a wallet address above.</div>
-
-</div>
-
-<div class="slideshow" id="slideshow">
-  <span class="counter" id="ssCounter"></span>
-  <span class="close" id="ssClose">✕ EXIT</span>
-  <img id="ssImg" src="" alt="" />
-  <div class="cap" id="ssCap"></div>
-  <div class="controls">
-    <button id="ssPrev">‹ PREV</button>
-    <button id="ssToggle">PAUSE</button>
-    <button id="ssNext">NEXT ›</button>
-  </div>
-</div>
-
-<script>
-const ownerInput = document.getElementById('owner');
-const apiKeyInput = document.getElementById('apikey');
-const collectionInput = document.getElementById('collection');
-const intervalInput = document.getElementById('interval');
-const loadBtn = document.getElementById('loadBtn');
-const playBtn = document.getElementById('playBtn');
-const statusEl = document.getElementById('status');
-const grid = document.getElementById('grid');
-const emptyState = document.getElementById('emptyState');
-const countRow = document.getElementById('countRow');
-const countText = document.getElementById('countText');
-const ownerEcho = document.getElementById('ownerEcho');
-
-const slideshow = document.getElementById('slideshow');
-const ssImg = document.getElementById('ssImg');
-const ssCap = document.getElementById('ssCap');
-const ssCounter = document.getElementById('ssCounter');
-const ssClose = document.getElementById('ssClose');
-const ssPrev = document.getElementById('ssPrev');
-const ssNext = document.getElementById('ssNext');
-const ssToggle = document.getElementById('ssToggle');
-
-let covers = [];
-let ssIndex = 0;
-let ssTimer = null;
-let ssPlaying = true;
-
-function setStatus(msg, isErr){
-  statusEl.textContent = msg || '';
-  statusEl.className = 'status' + (isErr ? ' err' : '');
-}
-
-function shortAddr(a){
-  if(!a || a.length < 10) return a || '';
-  return a.slice(0,4) + '…' + a.slice(-4);
-}
-
-async function fetchAssets(owner, apiKey){
-  const url = `https://mainnet.helius-rpc.com/?api-key=${encodeURIComponent(apiKey)}`;
-  const body = {
-    jsonrpc: '2.0',
-    id: 'zurcovers',
-    method: 'getAssetsByOwner',
-    params: {
-      ownerAddress: owner,
-      page: 1,
-      limit: 1000,
-      displayOptions: { showCollectionMetadata: true }
-    }
-  };
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  if(!res.ok){
-    throw new Error(`Helius request failed (${res.status}). Check your API key.`);
-  }
-  const data = await res.json();
-  if(data.error){
-    throw new Error(data.error.message || 'Helius returned an error.');
-  }
-  return data.result?.items || [];
-}
-
-function extractImage(item){
-  const files = item?.content?.files;
-  if(files && files.length){
-    const withUri = files.find(f => f.uri);
-    if(withUri) return withUri.uri;
-  }
-  return item?.content?.links?.image || item?.content?.json_uri || null;
-}
-
-function extractCollectionKey(item){
-  const grouping = item?.grouping || [];
-  const g = grouping.find(g => g.group_key === 'collection');
-  return g ? g.group_value : null;
-}
-
-function renderGrid(items){
-  grid.innerHTML = '';
-  if(items.length === 0){
-    emptyState.style.display = 'block';
-    emptyState.textContent = 'No matching covers found for this wallet.';
-    grid.style.display = 'none';
-    return;
-  }
-  emptyState.style.display = 'none';
-  grid.style.display = 'grid';
-
-  items.forEach(item => {
-    const img = extractImage(item);
-    if(!img) return;
-    const name = item?.content?.metadata?.name || 'Untitled';
-
-    const panel = document.createElement('div');
-    panel.className = 'panel';
-
-    const imgEl = document.createElement('img');
-    imgEl.src = img;
-    imgEl.alt = name;
-    imgEl.loading = 'lazy';
-    panel.appendChild(imgEl);
-
-    const tag = document.createElement('div');
-    tag.className = 'tag';
-    tag.textContent = name;
-    panel.appendChild(tag);
-
-    grid.appendChild(panel);
-  });
-}
-
-async function handleLoad(){
-  const owner = ownerInput.value.trim();
-  const apiKey = apiKeyInput.value.trim();
-  const collectionFilter = collectionInput.value.trim();
-
-  if(!owner){ setStatus('Enter a wallet address first.', true); return; }
-  if(!apiKey){ setStatus('Enter your Helius API key first.', true); return; }
-
-  loadBtn.disabled = true;
-  playBtn.disabled = true;
-  setStatus('Pulling assets from chain…');
-  countRow.style.display = 'none';
-  grid.innerHTML = '';
-  emptyState.style.display = 'none';
-  covers = [];
-
-  try{
-    const items = await fetchAssets(owner, apiKey);
-    let withImages = items.filter(extractImage);
-
-    if(collectionFilter){
-      withImages = withImages.filter(it => extractCollectionKey(it) === collectionFilter);
-    }
-
-    covers = withImages.map(item => ({
-      img: extractImage(item),
-      name: item?.content?.metadata?.name || 'Untitled'
-    }));
-
-    renderGrid(withImages);
-    countRow.style.display = 'flex';
-    countText.textContent = `${withImages.length} cover${withImages.length === 1 ? '' : 's'} found`;
-    ownerEcho.textContent = shortAddr(owner);
-    setStatus(items.length === 0 ? 'Wallet holds no assets on this key, or none returned.' : '');
-    playBtn.disabled = covers.length === 0;
-  }catch(err){
-    console.error(err);
-    setStatus(err.message || 'Something went wrong.', true);
-    emptyState.style.display = 'block';
-    emptyState.textContent = 'Could not load covers — see message above.';
-  }finally{
-    loadBtn.disabled = false;
-  }
-}
-
-function showSlide(i){
-  if(covers.length === 0) return;
-  ssIndex = (i + covers.length) % covers.length;
-  const c = covers[ssIndex];
-  ssImg.src = c.img;
-  ssImg.alt = c.name;
-  ssCap.textContent = c.name;
-  ssCounter.textContent = `${ssIndex + 1} / ${covers.length}`;
-}
-
-function stepSlide(delta){
-  showSlide(ssIndex + delta);
-}
-
-function startTimer(){
-  stopTimer();
-  const secs = Math.max(2, Math.min(60, Number(intervalInput.value) || 6));
-  ssTimer = setInterval(() => stepSlide(1), secs * 1000);
-}
-
-function stopTimer(){
-  if(ssTimer){ clearInterval(ssTimer); ssTimer = null; }
-}
-
-function setPlaying(playing){
-  ssPlaying = playing;
-  ssToggle.textContent = playing ? 'PAUSE' : 'PLAY';
-  if(playing) startTimer(); else stopTimer();
-}
-
-function openSlideshow(){
-  if(covers.length === 0) return;
-  showSlide(0);
-  slideshow.classList.add('open');
-  setPlaying(true);
-}
-
-function closeSlideshow(){
-  slideshow.classList.remove('open');
-  stopTimer();
-}
-
-loadBtn.addEventListener('click', handleLoad);
-playBtn.addEventListener('click', openSlideshow);
-ownerInput.addEventListener('keydown', e => { if(e.key === 'Enter') handleLoad(); });
-apiKeyInput.addEventListener('keydown', e => { if(e.key === 'Enter') handleLoad(); });
-
-ssClose.addEventListener('click', closeSlideshow);
-ssPrev.addEventListener('click', () => { stepSlide(-1); if(ssPlaying) startTimer(); });
-ssNext.addEventListener('click', () => { stepSlide(1); if(ssPlaying) startTimer(); });
-ssToggle.addEventListener('click', () => setPlaying(!ssPlaying));
-
-document.addEventListener('keydown', e => {
-  if(!slideshow.classList.contains('open')) return;
-  if(e.key === 'Escape') closeSlideshow();
-  else if(e.key === 'ArrowLeft'){ stepSlide(-1); if(ssPlaying) startTimer(); }
-  else if(e.key === 'ArrowRight'){ stepSlide(1); if(ssPlaying) startTimer(); }
-  else if(e.key === ' '){ e.preventDefault(); setPlaying(!ssPlaying); }
-});
-
-// Kiosk convenience: prefill the wallet address from ?wallet=<address>.
-// The API key is never accepted via URL and must always be typed in.
-(function prefillFromQuery(){
-  const params = new URLSearchParams(window.location.search);
-  const w = params.get('wallet');
-  if(w) ownerInput.value = w.trim();
-})();
-</script>
-
-<div class="wrap">
   <footer>
-    <span>ZurCovers — a ZurVault project</span>
+    <span>ZurCovers — a companion to <a href="https://zurvault.com" target="_blank" rel="noopener">zurvault.com</a></span>
     <span>Fan-built · Not affiliated with DC Comics, Warner Bros., or Candy Digital</span>
   </footer>
+
 </div>
 
 </body>
