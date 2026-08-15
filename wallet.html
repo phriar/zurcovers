@@ -99,7 +99,13 @@
     display:flex; flex-direction:column; transition:background .15s;
   }
   .card:hover{ background:rgba(255,255,255,0.03); }
+  .card .img-wrap{ position:relative; }
   .card img{ width:100%; aspect-ratio:2/3; object-fit:cover; background:rgba(255,255,255,0.03); display:block; }
+  .qty-badge{
+    position:absolute; top:8px; right:8px; background:rgba(0,0,0,0.75); backdrop-filter:blur(4px);
+    color:#fff; font-family:'DM Mono',monospace; font-size:.7rem; letter-spacing:.03em;
+    padding:3px 8px; border-radius:20px; border:1px solid rgba(255,255,255,0.2);
+  }
   .card .body{ padding:12px 14px 16px; }
   .card .sub{
     font-family:'DM Mono',monospace; font-size:.6rem; letter-spacing:.14em; text-transform:uppercase;
@@ -256,19 +262,38 @@ async function loadWallet(address){
   setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Done.`);
 }
 
+// Copies of the same print (identical name, e.g. a mass-produced DC3
+// edition with no per-copy serial baked into it) collapse into one card
+// with a ×N badge. Individually-numbered editions (name ends "#123/1938",
+// same signal ZurVault's parseEdition() looks for) keep each copy's name
+// distinct, so this naturally does NOT collapse those — each stays its
+// own card, correctly.
+function groupByName(items){
+  const byName = new Map();
+  for(const item of items){
+    const k = item.name || item.mint;
+    if(!byName.has(k)) byName.set(k, { representative: item, count: 0 });
+    byName.get(k).count++;
+  }
+  return [...byName.values()];
+}
+
 function render(groups){
   const cards = [];
   for(const key of Object.keys(groups)){
     const g = groups[key];
-    for(const item of g.items){
-      const floorKnown = g.floor !== undefined;
-      const floorText = g.floor === null || g.floor === undefined
-        ? (floorKnown ? 'no ME data' : '…')
-        : `${g.floor.toFixed(4)} SOL`;
+    const floorKnown = g.floor !== undefined;
+    const floorText = g.floor === null || g.floor === undefined
+      ? (floorKnown ? 'no ME data' : '…')
+      : `${g.floor.toFixed(4)} SOL`;
+    for(const { representative: item, count } of groupByName(g.items)){
       const pdpUrl = `https://magiceden.io/item-details/${item.mint}`;
       cards.push(`
         <a class="card" href="${esc(pdpUrl)}" target="_blank" rel="noopener">
-          <img src="${esc(item.image)}" loading="lazy" onerror="this.style.opacity=0.2">
+          <div class="img-wrap">
+            <img src="${esc(item.image)}" loading="lazy" onerror="this.style.opacity=0.2">
+            ${count > 1 ? `<div class="qty-badge">&times;${count}</div>` : ''}
+          </div>
           <div class="body">
             <div class="sub">${esc(g.name)}</div>
             <div class="name">${esc(item.name)}</div>
