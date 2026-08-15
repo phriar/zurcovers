@@ -73,13 +73,19 @@
   footer a{ color:rgba(143,111,232,0.6); text-decoration:none; }
   footer a:hover{ color:var(--gold); }
 
-  .nav-row{ margin-top:22px; display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
-  .nav-row a{
-    font-size:.66rem; letter-spacing:.14em; text-transform:uppercase; color:rgba(143,111,232,0.7);
-    text-decoration:none; border:1px solid rgba(143,111,232,0.25); padding:9px 18px; border-radius:2px;
-    transition:all .15s;
+  .page-list{ margin-top:26px; display:flex; flex-direction:column; gap:10px; text-align:left; }
+  .page-card{
+    display:block; text-decoration:none; padding:14px 18px; border:1px solid var(--border);
+    border-radius:4px; transition:all .15s;
   }
-  .nav-row a:hover{ color:var(--gold); border-color:rgba(143,111,232,0.6); }
+  .page-card:hover{ border-color:rgba(143,111,232,0.5); background:rgba(143,111,232,0.04); }
+  .page-card .page-name{
+    font-size:.78rem; letter-spacing:.1em; text-transform:uppercase; color:rgba(143,111,232,0.85);
+  }
+  .page-card:hover .page-name{ color:var(--gold); }
+  .page-card .page-desc{
+    margin-top:4px; font-size:.74rem; line-height:1.5; color:rgba(255,255,255,0.45);
+  }
 </style>
 </head>
 <body>
@@ -94,9 +100,19 @@
     Unofficial fan project &mdash; not affiliated with, endorsed by, or sponsored by DC Comics, Warner Bros. Discovery, or Candy Digital. It only ever reads a public wallet address you provide; it never requests a wallet connection and cannot move, sell, or modify anything you own.
   </div>
 
-  <div class="nav-row">
-    <a href="wallet.html">My Wallet &#8599;</a>
-    <a href="slideshow.html">Slideshow &#8599;</a>
+  <div class="page-list">
+    <a class="page-card" href="wallet.html">
+      <div class="page-name">My Wallet &#8599;</div>
+      <div class="page-desc">Grid view of everything the wallet holds, with the current Magic Eden floor price per collection.</div>
+    </a>
+    <a class="page-card" href="collections.html">
+      <div class="page-name">My Collections &#8599;</div>
+      <div class="page-desc">Browse by collection first, then drill into one to see rarity tiers you own and the current lowest listed price for each.</div>
+    </a>
+    <a class="page-card" href="slideshow.html">
+      <div class="page-name">Slideshow &#8599;</div>
+      <div class="page-desc">Full-screen kiosk playback, collection picker and shuffle, with NFT attributes shown at the bottom of each frame.</div>
+    </a>
   </div>
 
   <footer>
