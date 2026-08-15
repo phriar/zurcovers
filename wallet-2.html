@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#241407">
+<title>My Wallet (Shelf View) — zurcovers</title>
+<meta name="description" content="See every DC digital comic cover a public Solana wallet holds, arranged like a comic shop shelf, with current Magic Eden floor price where available.">
+<link href="https://fonts.googleapis.com/css2?family=Bangers&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  :root{
+    --wood-dark:  #241407;
+    --wood-mid:   #3a230f;
+    --wood-light: #4e3018;
+    --gold:   #e8b24d;
+    --cyan:   #2de6d0;
+    --paper:  #f3efe6;
+    --tag-red: #c0392b;
+  }
+
+  body{
+    background:
+      repeating-linear-gradient(90deg, rgba(0,0,0,0.08) 0px, transparent 2px, transparent 26px, rgba(0,0,0,0.08) 28px),
+      linear-gradient(180deg, var(--wood-mid), var(--wood-dark) 70%);
+    color:var(--paper); min-height:100vh;
+    font-family:'DM Mono',monospace; -webkit-font-smoothing:antialiased;
+  }
+
+  #grain{
+    position:fixed; inset:0; z-index:0; pointer-events:none; opacity:0.05;
+    background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  header{
+    position:relative; z-index:1; padding:44px 32px 22px; border-bottom:3px solid rgba(0,0,0,0.35);
+    background:radial-gradient(ellipse at top, rgba(232,178,77,0.12), transparent 60%);
+  }
+  header .brand{ font-size:.7rem; letter-spacing:.4em; color:rgba(243,239,230,0.4); text-transform:uppercase; font-family:'DM Mono',monospace; }
+  header .brand a{ color:rgba(243,239,230,0.4); text-decoration:none; }
+  header .brand a:hover{ color:var(--gold); }
+  header .experimental{
+    display:inline-block; margin-left:10px; font-size:.6rem; letter-spacing:.1em; text-transform:uppercase;
+    color:rgba(45,230,208,0.8); border:1px solid rgba(45,230,208,0.3); border-radius:20px; padding:2px 9px;
+  }
+  header h1{
+    font-family:'Bangers',cursive; font-weight:400; letter-spacing:.03em;
+    font-size:clamp(2.4rem,7vw,4rem); line-height:1; margin-top:12px;
+    color:var(--gold); text-shadow:3px 3px 0 rgba(0,0,0,0.4);
+  }
+  header h1 span{ color:var(--paper); }
+  header .sub{ margin-top:12px; font-size:.85rem; letter-spacing:.02em; line-height:1.7; color:rgba(243,239,230,0.6); max-width:560px; }
+
+  .nav-links{ margin-top:16px; display:flex; gap:14px; flex-wrap:wrap; }
+  .nav-links a{ font-size:.62rem; letter-spacing:.16em; text-transform:uppercase; color:rgba(232,178,77,0.75); text-decoration:none; border:1px solid rgba(232,178,77,0.3); padding:6px 14px; border-radius:2px; transition:all .15s; }
+  .nav-links a:hover{ color:var(--gold); border-color:var(--gold); background:rgba(232,178,77,0.08); }
+
+  .disclosures{ position:relative; z-index:1; padding:16px 32px 4px; display:flex; flex-direction:column; gap:10px; }
+  .disclosure-box{ padding:12px 16px; border-radius:4px; font-size:.76rem; line-height:1.7; }
+  .disclosure-box.warn{ border:1px solid rgba(224,122,95,0.35); background:rgba(224,122,95,0.1); color:rgba(243,239,230,0.75); }
+  .disclosure-box.warn strong{ color:#e8917a; font-weight:500; }
+  .disclosure-box.info{ border:1px solid rgba(45,230,208,0.25); background:rgba(45,230,208,0.06); color:rgba(243,239,230,0.6); }
+
+  .entry-panel{
+    position:relative; z-index:1; padding:18px 32px; border-bottom:3px solid rgba(0,0,0,0.35);
+    display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+  }
+  .entry-panel input{
+    flex:1; min-width:220px; background:rgba(0,0,0,0.35); border:1px solid rgba(243,239,230,0.15); color:var(--paper);
+    font-family:'DM Mono',monospace; font-size:.72rem; padding:11px 13px; border-radius:2px; outline:none;
+  }
+  .entry-panel input:focus{ border-color:var(--gold); }
+  .entry-panel button{
+    background:var(--tag-red); border:1px solid rgba(0,0,0,0.3); color:#fff;
+    font-family:'Bangers',cursive; font-size:.95rem; letter-spacing:.06em; text-transform:uppercase;
+    padding:10px 22px; border-radius:2px; cursor:pointer; transition:filter .15s;
+  }
+  .entry-panel button:hover{ filter:brightness(1.15); }
+
+  #status{ position:relative; z-index:1; padding:16px 32px; font-size:.62rem; letter-spacing:.08em; color:rgba(243,239,230,0.5); text-transform:uppercase; }
+  #status.err{ color:#e8917a; }
+  #status .dot{ display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--cyan); margin-right:8px; }
+
+  .caveat{
+    position:relative; z-index:1; margin:0 32px 20px; padding:10px 14px;
+    border:1px solid rgba(45,230,208,0.2); border-radius:4px; background:rgba(45,230,208,0.06);
+    font-size:.72rem; line-height:1.7; color:rgba(243,239,230,0.6);
+  }
+
+  /* THE SHELF — a loose, overlapping row of tilted covers rather than a
+     clean grid, meant to feel like flipping through a bin at a shop
+     rather than browsing a catalog. Each cover's tilt/lift comes from a
+     CSS custom property set per-card from a stable hash of its mint, so
+     the "randomness" doesn't jitter between re-renders (e.g. every time
+     a floor price resolves and render() re-runs). */
+  .shelf{
+    position:relative; z-index:1; display:flex; flex-wrap:wrap; gap:22px 14px;
+    padding:36px 40px 80px; align-items:flex-end;
+  }
+  .comic{
+    position:relative; width:150px; flex-shrink:0;
+    transform:rotate(var(--tilt)); transition:transform .2s ease, box-shadow .2s ease;
+    text-decoration:none; display:block; cursor:pointer;
+  }
+  .comic:hover{ transform:rotate(0deg) translateY(-10px) scale(1.06); z-index:5; }
+  .comic .cover{
+    width:100%; aspect-ratio:2/3; object-fit:cover; display:block; border-radius:2px;
+    box-shadow:0 6px 16px rgba(0,0,0,0.5), 0 1px 0 rgba(255,255,255,0.06) inset;
+    background:rgba(255,255,255,0.05);
+  }
+  .comic:hover .cover{ box-shadow:0 16px 32px rgba(0,0,0,0.6); }
+
+  /* Garage-sale-sticker price tag, hanging off the bottom-right corner —
+     visually distinct from wallet.html's plain floor-price line on purpose. */
+  .price-tag{
+    position:absolute; bottom:-10px; right:-14px; transform:rotate(6deg);
+    background:var(--paper); color:var(--wood-dark); font-family:'DM Mono',monospace;
+    font-size:.66rem; font-weight:400; padding:4px 9px 4px 14px; border-radius:2px;
+    box-shadow:0 3px 6px rgba(0,0,0,0.35); white-space:nowrap;
+  }
+  .price-tag::before{
+    content:''; position:absolute; left:5px; top:50%; transform:translateY(-50%);
+    width:5px; height:5px; border-radius:50%; background:var(--wood-dark);
+  }
+  .price-tag.unavailable{ color:rgba(36,20,7,0.4); }
+
+  /* Shop inventory sticker for owned-copy count */
+  .qty-sticker{
+    position:absolute; top:-10px; right:-10px; transform:rotate(-8deg);
+    background:var(--tag-red); color:#fff; font-family:'Bangers',cursive; letter-spacing:.02em;
+    font-size:.85rem; width:34px; height:34px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 3px 6px rgba(0,0,0,0.4); border:2px solid rgba(255,255,255,0.25);
+  }
+
+  .comic .caption{ margin-top:14px; text-align:center; }
+  .comic .caption .sub{
+    font-family:'DM Mono',monospace; font-size:.56rem; letter-spacing:.1em; text-transform:uppercase;
+    color:rgba(45,230,208,0.85); margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .comic .caption .name{
+    font-family:'Cormorant Garamond',serif; font-size:.92rem; line-height:1.2; color:rgba(243,239,230,0.85);
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+  }
+  .comic .caption .me-tag{
+    font-family:'DM Mono',monospace; font-size:.56rem; letter-spacing:.05em; text-transform:uppercase;
+    color:rgba(45,230,208,0.7); margin-top:3px;
+  }
+
+  .empty{ position:relative; z-index:1; padding:60px 32px; text-align:center; color:rgba(243,239,230,0.4); font-family:'Cormorant Garamond',serif; font-size:1.2rem; font-weight:300; line-height:1.6; }
+
+  footer{ position:relative; z-index:1; padding:28px 32px 44px; text-align:center; font-size:.5rem; letter-spacing:.12em; color:rgba(243,239,230,0.3); text-transform:uppercase; }
+  footer a{ color:rgba(232,178,77,0.7); text-decoration:none; }
+  footer a:hover{ color:var(--gold); }
+</style>
+</head>
+<body>
+<div id="grain"></div>
+
+<header>
+  <div class="brand"><a href="index.html">zurcovers</a> / My Wallet <span class="experimental">Shelf View — Experimental</span></div>
+  <h1>The <span>Long Box</span></h1>
+  <div class="sub">Everything a public Solana wallet holds, arranged like a shop shelf instead of a grid — current Magic Eden floor price on the price tag. Public address only — no wallet connection, no signing.</div>
+  <div class="nav-links">
+    <a href="wallet.html">Classic Grid View</a>
+    <a href="slideshow.html">Full-Screen Slideshow &#8599;</a>
+    <a href="index.html">Home</a>
+  </div>
+</header>
+
+<div class="disclosures">
+  <div class="disclosure-box warn"><strong>Never share your private key or seed phrase with anyone, including here.</strong> This page only ever needs a <strong>public</strong> wallet address — the same address anyone could already look up on a block explorer. It never asks for anything else.</div>
+  <div class="disclosure-box info">Unofficial fan project &mdash; not affiliated with, endorsed by, or sponsored by DC Comics, Warner Bros. Discovery, Candy Digital, or Magic Eden.</div>
+</div>
+
+<div class="entry-panel">
+  <input type="text" id="wallet-input" placeholder="paste a public wallet address" autocapitalize="off" autocorrect="off" spellcheck="false">
+  <button id="load-btn">Browse Shelf</button>
+</div>
+
+<div id="status"></div>
+<div class="caveat" id="caveat" style="display:none">
+  Small/unfamiliar "collection" entries in a wallet are often unsolicited airdrop NFTs, not anything you acquired — Magic Eden simply not recognizing one is common and not itself a red flag. Never interact with anything claiming you need to "claim" a reward.
+</div>
+<div class="shelf" id="shelf"></div>
+
+<footer>
+  Wallet data via Helius (server-side) · Floor prices via Magic Eden, where resolvable · <a href="index.html">zurcovers.com</a>
+</footer>
+
+<script>
+const ME_PROXY_BASE = "https://zurcovers-proxy.stholt.workers.dev";
+const ME_BASE = ME_PROXY_BASE + "/v2";
+const WALLET_KEY = 'zurcovers_wallet';
+const SOL_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const LOOKUP_PACE_MS = 900; // same pacing discover.html uses against Magic Eden's per-minute rate limit
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+const statusEl = document.getElementById('status');
+const caveatEl = document.getElementById('caveat');
+const shelfEl = document.getElementById('shelf');
+const walletInputEl = document.getElementById('wallet-input');
+const loadBtnEl = document.getElementById('load-btn');
+
+function setStatus(msg, isErr){
+  statusEl.innerHTML = (isErr ? '' : '<span class="dot"></span>') + msg;
+  statusEl.classList.toggle('err', !!isErr);
+}
+
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+
+// Stable per-mint "randomness" for shelf tilt — a tiny string hash, not
+// cryptographic, just needs to be deterministic and spread out.
+function hashTilt(s){
+  let h = 0;
+  for(let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  const deg = (Math.abs(h) % 13) - 6; // -6deg..+6deg
+  return deg;
+}
+
+async function resolveMESymbol(mintAddress){
+  try{
+    const res = await fetch(`${ME_BASE}/tokens/${mintAddress}`);
+    if(!res.ok) return null;
+    const data = await res.json();
+    const collectionField = data?.collection;
+    return (typeof collectionField === 'string')
+      ? collectionField
+      : (collectionField?.symbol || collectionField?.name || data?.collectionSymbol || null);
+  }catch(e){
+    return null;
+  }
+}
+
+async function fetchFloorPrice(symbol){
+  try{
+    const res = await fetch(`${ME_BASE}/collections/${symbol}/stats`);
+    if(!res.ok) return null;
+    const data = await res.json();
+    return typeof data?.floorPrice === 'number' ? data.floorPrice / 1e9 : null;
+  }catch(e){
+    return null;
+  }
+}
+
+async function loadWallet(address){
+  shelfEl.innerHTML = '';
+  caveatEl.style.display = 'none';
+  setStatus('Fetching wallet assets…');
+
+  let json;
+  try{
+    const res = await fetch(`${ME_BASE}/wallet-assets?address=${encodeURIComponent(address)}`);
+    if(!res.ok){
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(errJson.error === 'rate_limited' ? 'Too many lookups from here right now — try again in a bit.' : `HTTP ${res.status}`);
+    }
+    json = await res.json();
+  }catch(e){
+    setStatus('Could not load that wallet: ' + e.message, true);
+    return;
+  }
+
+  const assets = json.assets || [];
+  if(assets.length === 0){
+    setStatus('No NFTs found in this wallet.', true);
+    return;
+  }
+
+  const groups = {};
+  for(const a of assets){
+    const key = a.collectionKey || a.collectionName || a.mint;
+    if(!groups[key]) groups[key] = { name: a.collectionName || 'Unknown Collection', items: [], sampleMint: a.mint, floor: undefined };
+    groups[key].items.push(a);
+  }
+  const groupKeys = Object.keys(groups);
+
+  setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Looking up floor prices…`);
+  caveatEl.style.display = 'block';
+  render(groups);
+
+  let done = 0;
+  for(const key of groupKeys){
+    const symbol = await resolveMESymbol(groups[key].sampleMint);
+    groups[key].floor = symbol ? await fetchFloorPrice(symbol) : null;
+    done++;
+    setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Floor prices: ${done}/${groupKeys.length}…`);
+    render(groups);
+    await sleep(LOOKUP_PACE_MS);
+  }
+
+  setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Done.`);
+}
+
+// Same "identical copies collapse into one card + count" grouping as
+// wallet.html — see that file's comment for why grouping by exact name
+// naturally leaves individually-numbered editions un-collapsed.
+function groupByName(items){
+  const byName = new Map();
+  for(const item of items){
+    const k = item.name || item.mint;
+    if(!byName.has(k)) byName.set(k, { representative: item, count: 0 });
+    byName.get(k).count++;
+  }
+  return [...byName.values()];
+}
+
+function render(groups){
+  const comics = [];
+  for(const key of Object.keys(groups)){
+    const g = groups[key];
+    const floorKnown = g.floor !== undefined;
+    const priceTagText = g.floor === null || g.floor === undefined
+      ? (floorKnown ? 'no ME data' : '…')
+      : `${g.floor.toFixed(3)} SOL`;
+    for(const { representative: item, count } of groupByName(g.items)){
+      const pdpUrl = `https://magiceden.io/item-details/${item.mint}`;
+      const tilt = hashTilt(item.mint) + 'deg';
+      comics.push(`
+        <a class="comic" style="--tilt:${tilt}" href="${esc(pdpUrl)}" target="_blank" rel="noopener">
+          <img class="cover" src="${esc(item.image)}" loading="lazy" onerror="this.style.opacity=0.2">
+          ${count > 1 ? `<div class="qty-sticker">&times;${count}</div>` : ''}
+          <div class="price-tag ${g.floor ? '' : 'unavailable'}">${priceTagText}</div>
+          <div class="caption">
+            <div class="sub">${esc(g.name)}</div>
+            <div class="name">${esc(item.name)}</div>
+            <div class="me-tag">Magic Eden &#8599;</div>
+          </div>
+        </a>
+      `);
+    }
+  }
+  shelfEl.innerHTML = comics.join('');
+}
+
+function go(){
+  const addr = walletInputEl.value.trim();
+  if(!SOL_ADDRESS_RE.test(addr)){
+    setStatus("That doesn't look like a valid Solana address.", true);
+    return;
+  }
+  localStorage.setItem(WALLET_KEY, addr);
+  history.replaceState(null, '', '?wallet=' + encodeURIComponent(addr));
+  loadWallet(addr);
+}
+loadBtnEl.addEventListener('click', go);
+walletInputEl.addEventListener('keydown', (e) => { if(e.key === 'Enter') go(); });
+
+(function init(){
+  const urlWallet = new URLSearchParams(window.location.search).get('wallet');
+  const saved = localStorage.getItem(WALLET_KEY);
+  const addr = (urlWallet && SOL_ADDRESS_RE.test(urlWallet)) ? urlWallet : saved;
+  if(addr){
+    walletInputEl.value = addr;
+    loadWallet(addr);
+  } else {
+    setStatus('Paste a public wallet address above to get started.');
+  }
+})();
+</script>
+</body>
+</html>
