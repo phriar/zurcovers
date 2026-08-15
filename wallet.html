@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0a0a0a">
+<title>My Wallet — zurcovers</title>
+<meta name="description" content="See every Spawn/OddKey (and other) NFT a public Solana wallet holds, with current Magic Eden floor price where available.">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  :root{
+    --ink:    #0a0a0a;
+    --gold:   #8f6fe8;
+    --deep:   #6b2fd6;
+    --cyan:   #4de8ff;
+    --border: rgba(255,255,255,0.07);
+  }
+
+  body{
+    background:var(--ink); color:#fff; min-height:100vh;
+    font-family:'DM Mono',monospace; -webkit-font-smoothing:antialiased;
+  }
+
+  #grain{
+    position:fixed; inset:0; z-index:0; pointer-events:none; opacity:0.025;
+    background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  header{
+    position:relative; z-index:1; padding:44px 32px 22px; border-bottom:1px solid var(--border);
+    background:radial-gradient(ellipse at top, rgba(107,47,214,0.16), transparent 60%);
+  }
+  header .brand{ font-size:.7rem; letter-spacing:.4em; color:rgba(255,255,255,0.22); text-transform:uppercase; }
+  header .brand a{ color:rgba(255,255,255,0.22); text-decoration:none; }
+  header .brand a:hover{ color:var(--gold); }
+  header h1{
+    font-family:'Cormorant Garamond',serif; font-weight:300; letter-spacing:.02em;
+    font-size:clamp(1.9rem,5vw,2.8rem); color:rgba(255,255,255,0.92); margin-top:10px;
+  }
+  header h1 span{ color:var(--gold); }
+  header .sub{ margin-top:10px; font-size:.68rem; letter-spacing:.05em; line-height:1.7; color:rgba(255,255,255,0.4); max-width:520px; }
+
+  .nav-links{ margin-top:16px; display:flex; gap:14px; flex-wrap:wrap; }
+  .nav-links a{ font-size:.62rem; letter-spacing:.16em; text-transform:uppercase; color:rgba(143,111,232,0.6); text-decoration:none; border:1px solid rgba(143,111,232,0.2); padding:6px 14px; border-radius:2px; transition:all .15s; }
+  .nav-links a:hover{ color:var(--gold); border-color:rgba(143,111,232,0.5); }
+
+  .entry-panel{
+    position:relative; z-index:1; padding:18px 32px; border-bottom:1px solid var(--border);
+    display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+  }
+  .entry-panel input{
+    flex:1; min-width:220px; background:rgba(0,0,0,0.5); border:1px solid var(--border); color:rgba(255,255,255,0.85);
+    font-family:'DM Mono',monospace; font-size:.72rem; padding:11px 13px; border-radius:2px; outline:none;
+  }
+  .entry-panel input:focus{ border-color:rgba(143,111,232,0.5); }
+  .entry-panel button{
+    background:linear-gradient(135deg, var(--deep), var(--gold)); border:1px solid rgba(143,111,232,0.5); color:#fff;
+    font-family:'DM Mono',monospace; font-size:.62rem; letter-spacing:.16em; text-transform:uppercase;
+    padding:11px 18px; border-radius:2px; cursor:pointer; transition:filter .15s;
+  }
+  .entry-panel button:hover{ filter:brightness(1.12); }
+
+  #status{ position:relative; z-index:1; padding:16px 32px; font-size:.62rem; letter-spacing:.08em; color:rgba(255,255,255,0.35); text-transform:uppercase; }
+  #status.err{ color:#e07a5f; }
+  #status .dot{ display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--cyan); margin-right:8px; }
+
+  .caveat{
+    position:relative; z-index:1; margin:0 32px 16px; padding:10px 14px;
+    border:1px solid rgba(77,232,255,0.18); border-radius:4px; background:rgba(77,232,255,0.05);
+    font-size:.6rem; line-height:1.7; color:rgba(255,255,255,0.45);
+  }
+
+  .grid{
+    position:relative; z-index:1;
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
+    gap:1px; background:var(--border); padding:1px 32px 60px; margin-top:1px;
+  }
+  .card{
+    background:var(--ink); overflow:hidden; text-decoration:none; color:#fff;
+    display:flex; flex-direction:column; transition:background .15s;
+  }
+  .card:hover{ background:rgba(255,255,255,0.03); }
+  .card img{ width:100%; aspect-ratio:2/3; object-fit:cover; background:rgba(255,255,255,0.03); display:block; }
+  .card .body{ padding:12px 14px 16px; }
+  .card .sub{
+    font-family:'DM Mono',monospace; font-size:.6rem; letter-spacing:.14em; text-transform:uppercase;
+    color:rgba(143,111,232,0.92); margin-bottom:5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .card .name{
+    font-family:'Cormorant Garamond',serif; font-weight:400; font-size:1.1rem; line-height:1.25;
+    color:rgba(255,255,255,0.85); margin-bottom:8px;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+  }
+  .card .price{ font-family:'DM Mono',monospace; font-size:.78rem; letter-spacing:.05em; color:rgba(255,255,255,0.9); }
+  .card .price.unavailable{ color:rgba(255,255,255,0.3); }
+  .card .floor-label{ font-family:'DM Mono',monospace; font-size:.5rem; letter-spacing:.1em; text-transform:uppercase; color:rgba(255,255,255,0.3); margin-top:2px; }
+
+  .empty{ position:relative; z-index:1; padding:60px 32px; text-align:center; color:rgba(255,255,255,0.25); font-family:'Cormorant Garamond',serif; font-size:1.2rem; font-weight:300; line-height:1.6; }
+
+  footer{ position:relative; z-index:1; padding:28px 32px 44px; text-align:center; font-size:.5rem; letter-spacing:.12em; color:rgba(255,255,255,0.15); text-transform:uppercase; }
+  footer a{ color:rgba(143,111,232,0.5); text-decoration:none; }
+  footer a:hover{ color:var(--gold); }
+</style>
+</head>
+<body>
+<div id="grain"></div>
+
+<header>
+  <div class="brand"><a href="index.html">zurcovers</a> / My Wallet</div>
+  <h1>My <span>Wallet</span></h1>
+  <div class="sub">Everything a public Solana wallet holds, grouped by collection, with the current Magic Eden floor price shown where that collection is still resolvable there. Public address only — no wallet connection, no signing.</div>
+  <div class="nav-links">
+    <a href="slideshow.html">Full-Screen Slideshow &#8599;</a>
+    <a href="index.html">Home</a>
+  </div>
+</header>
+
+<div class="entry-panel">
+  <input type="text" id="wallet-input" placeholder="paste a public wallet address" autocapitalize="off" autocorrect="off" spellcheck="false">
+  <button id="load-btn">Load Wallet</button>
+</div>
+
+<div id="status"></div>
+<div class="caveat" id="caveat" style="display:none">
+  Small/unfamiliar "collection" entries in a wallet are often unsolicited airdrop NFTs, not anything you acquired — Magic Eden simply not recognizing one is common and not itself a red flag. Never interact with anything claiming you need to "claim" a reward.
+</div>
+<div class="grid" id="grid"></div>
+
+<footer>
+  Wallet data via Helius (server-side) · Floor prices via Magic Eden, where resolvable · <a href="index.html">zurcovers.com</a>
+</footer>
+
+<script>
+const ME_PROXY_BASE = "https://zurcovers-proxy.stholt.workers.dev";
+const ME_BASE = ME_PROXY_BASE + "/v2";
+const WALLET_KEY = 'zurcovers_wallet';
+const SOL_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const LOOKUP_PACE_MS = 900; // same pacing discover.html uses against Magic Eden's per-minute rate limit
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+const statusEl = document.getElementById('status');
+const caveatEl = document.getElementById('caveat');
+const gridEl = document.getElementById('grid');
+const walletInputEl = document.getElementById('wallet-input');
+const loadBtnEl = document.getElementById('load-btn');
+
+function setStatus(msg, isErr){
+  statusEl.innerHTML = (isErr ? '' : '<span class="dot"></span>') + msg;
+  statusEl.classList.toggle('err', !!isErr);
+}
+
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+
+async function resolveMESymbol(mintAddress){
+  try{
+    const res = await fetch(`${ME_BASE}/tokens/${mintAddress}`);
+    if(!res.ok) return null;
+    const data = await res.json();
+    const collectionField = data?.collection;
+    return (typeof collectionField === 'string')
+      ? collectionField
+      : (collectionField?.symbol || collectionField?.name || data?.collectionSymbol || null);
+  }catch(e){
+    return null;
+  }
+}
+
+async function fetchFloorPrice(symbol){
+  try{
+    const res = await fetch(`${ME_BASE}/collections/${symbol}/stats`);
+    if(!res.ok) return null;
+    const data = await res.json();
+    // Magic Eden's /stats floorPrice is in lamports (confirmed live:
+    // spawn_ returned floorPrice 500000000 for a 0.5 SOL floor) — unlike
+    // the /listings endpoint's price field, which is already in SOL.
+    return typeof data?.floorPrice === 'number' ? data.floorPrice / 1e9 : null;
+  }catch(e){
+    return null;
+  }
+}
+
+async function loadWallet(address){
+  gridEl.innerHTML = '';
+  caveatEl.style.display = 'none';
+  setStatus('Fetching wallet assets…');
+
+  let json;
+  try{
+    const res = await fetch(`${ME_BASE}/wallet-assets?address=${encodeURIComponent(address)}`);
+    if(!res.ok){
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(errJson.error === 'rate_limited' ? 'Too many lookups from here right now — try again in a bit.' : `HTTP ${res.status}`);
+    }
+    json = await res.json();
+  }catch(e){
+    setStatus('Could not load that wallet: ' + e.message, true);
+    return;
+  }
+
+  const assets = json.assets || [];
+  if(assets.length === 0){
+    setStatus('No NFTs found in this wallet.', true);
+    return;
+  }
+
+  const groups = {};
+  for(const a of assets){
+    const key = a.collectionKey || a.collectionName || a.mint;
+    if(!groups[key]) groups[key] = { name: a.collectionName || 'Unknown Collection', items: [], sampleMint: a.mint, floor: undefined };
+    groups[key].items.push(a);
+  }
+  const groupKeys = Object.keys(groups);
+
+  setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Looking up floor prices…`);
+  caveatEl.style.display = 'block';
+  render(groups); // first paint with no prices yet, so the wallet's contents show up immediately
+
+  let done = 0;
+  for(const key of groupKeys){
+    const symbol = await resolveMESymbol(groups[key].sampleMint);
+    groups[key].floor = symbol ? await fetchFloorPrice(symbol) : null;
+    done++;
+    setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Floor prices: ${done}/${groupKeys.length}…`);
+    render(groups);
+    await sleep(LOOKUP_PACE_MS);
+  }
+
+  setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Done.`);
+}
+
+function render(groups){
+  const cards = [];
+  for(const key of Object.keys(groups)){
+    const g = groups[key];
+    for(const item of g.items){
+      const floorKnown = g.floor !== undefined;
+      const floorText = g.floor === null || g.floor === undefined
+        ? (floorKnown ? 'no ME data' : '…')
+        : `${g.floor.toFixed(4)} SOL`;
+      cards.push(`
+        <div class="card">
+          <img src="${esc(item.image)}" loading="lazy" onerror="this.style.opacity=0.2">
+          <div class="body">
+            <div class="sub">${esc(g.name)}</div>
+            <div class="name">${esc(item.name)}</div>
+            <div class="price ${g.floor ? '' : 'unavailable'}">${floorText}</div>
+            <div class="floor-label">collection floor</div>
+          </div>
+        </div>
+      `);
+    }
+  }
+  gridEl.innerHTML = cards.join('');
+}
+
+function go(){
+  const addr = walletInputEl.value.trim();
+  if(!SOL_ADDRESS_RE.test(addr)){
+    setStatus("That doesn't look like a valid Solana address.", true);
+    return;
+  }
+  localStorage.setItem(WALLET_KEY, addr);
+  history.replaceState(null, '', '?wallet=' + encodeURIComponent(addr));
+  loadWallet(addr);
+}
+loadBtnEl.addEventListener('click', go);
+walletInputEl.addEventListener('keydown', (e) => { if(e.key === 'Enter') go(); });
+
+(function init(){
+  const urlWallet = new URLSearchParams(window.location.search).get('wallet');
+  const saved = localStorage.getItem(WALLET_KEY);
+  const addr = (urlWallet && SOL_ADDRESS_RE.test(urlWallet)) ? urlWallet : saved;
+  if(addr){
+    walletInputEl.value = addr;
+    loadWallet(addr);
+  } else {
+    setStatus('Paste a public wallet address above to get started.');
+  }
+})();
+</script>
+</body>
+</html>

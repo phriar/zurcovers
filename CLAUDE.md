@@ -12,7 +12,9 @@ zurcovers.com — a spin-off of [ZurVault](https://zurvault.com), doing the same
 
 | File | What it does |
 |---|---|
-| `index.html` | Landing page. "Coming soon" placeholder with an upfront unofficial-fan-project disclosure — no wallet UI, no forms, no live data dependency yet. |
+| `index.html` | Landing page. "Coming soon" placeholder with an upfront unofficial-fan-project disclosure, plus links into `slideshow.html` and `wallet.html`. |
+| `slideshow.html` | Public page. Visitor pastes a public Solana wallet address; shows a full-screen, kiosk-style slideshow of that wallet's NFT covers (collection picker → shuffle/playback). No wallet-connect button, no client-side API key — fetches from the Worker's `/v2/wallet-assets`. |
+| `wallet.html` | Public page. Same wallet-address input as `slideshow.html`, but renders a grid of everything held, grouped by collection, with current Magic Eden floor price shown where that collection is still resolvable there. |
 | `discover.html` | **Internal tool, not linked from the public site.** Scans a wallet's owned assets via Helius, groups by on-chain collection, resolves each to a Magic Eden symbol, and outputs a `SPAWN_COLLECTIONS` config array to paste into `zurcovers-proxy-worker.js`. Plain wallet-address + Helius-API-key inputs (session-only key, never persisted) — no "Connect Wallet" button. |
 | `zurcovers-proxy-worker.js` | Source for the Cloudflare Worker. **In this repo but not auto-deployed** — committing/pushing has zero effect on the live Worker until it's manually pasted into the Cloudflare dashboard. |
 | `scripts/discover-spawn-collections.mjs` | One-off Magic Eden catalog scan for Spawn/OddKey collections by name/symbol match. Hit a hard wall (see Known limitations below); superseded by the wallet-based `discover.html` approach. Kept for reference, not part of the deployed site. Run with `node scripts/discover-spawn-collections.mjs`. |
@@ -27,6 +29,7 @@ zurcovers.com — a spin-off of [ZurVault](https://zurvault.com), doing the same
 - Serves `GET /v2/__trigger-refresh?key=<symbol>` as a manual on-demand refresh of one collection's KV entry, bypassing the cron cycle.
 - Serves `POST /v2/click-log` and `POST /v2/gallery-view` / `GET /v2/gallery-views` for lightweight analytics, each KV entry timestamped with a 90-day TTL rather than using a shared counter (avoids lossy increments under concurrent writes).
 - All outbound Magic Eden calls are paced through `throttleMagicEden()` (max 3 req/sec, global across the Worker) — Magic Eden enforces a real per-minute rate limit; anything that loops over ME requests must use this, not just bounded concurrency.
+- Serves `GET /v2/wallet-assets?address={pubkey}` — looks up everything a public wallet holds via Helius's `getAssetsByOwner`, server-side. Requires the `HELIUS_API_KEY` secret (bound in the Cloudflare dashboard, never in this file). Responses are cached per-address in `ZURCOVERS_CACHE` for 90s (`WALLET_CACHE_TTL_SECONDS`) and rate-limited per IP to 30 calls/hour (`WALLET_RATE_LIMIT_PER_HOUR`) — only actual Helius calls count against the limit, cache hits are free. **Why this exists**: ZurVault's earlier `slideshow-legacy.html` hardcoded a live Helius key directly in client-side JS (readable via view-source) — almost certainly why it kept getting flagged and was pulled from production (see `zurvault-archive/slideshow-legacy.html` and the stub that replaced it, `zurvault/slideshow.html`). This endpoint exists so `slideshow.html`/`wallet.html` never need a client-side key at all. **Do not reuse ZurVault's old exposed key even server-side** — get a fresh Helius key and treat the old one as permanently compromised.
 
 **`SPAWN_COLLECTIONS`** (top of the Worker file) starts **empty** on purpose — nothing auto-populates it. It's a hand-reviewed `{ sub, symbol }` array: `sub` is a human-readable sub-collection label for filter UIs, `symbol` is the exact Magic Eden collection symbol. Populate it using `discover.html`'s output, reviewing every entry before it goes live — not everything Spawn-named on Magic Eden is necessarily a comic (could be a toy, a PFP, an unrelated art drop, a name collision).
 
@@ -40,7 +43,8 @@ Manual, dashboard-based deploy — there is no CI/CD wiring this up:
 2. Paste the full contents of `zurcovers-proxy-worker.js`, Deploy.
 3. Create a KV namespace named exactly `ZURCOVERS_CACHE`, bind it to the Worker under Worker Settings → Variables → KV Namespace Bindings (variable name must match exactly — the code references it by that name).
 4. Add a Cron Trigger under Worker Settings → Triggers: `*/20 * * * *`. Without this, `/v2/spawn-summary` returns `notReady` forever.
-5. Update `ME_PROXY_BASE` in `discover.html` (and any future page hitting `/v2/spawn-summary`) to the real `*.workers.dev` URL Cloudflare assigns.
+5. Add the `HELIUS_API_KEY` secret (Worker Settings → Variables → Secrets, or `wrangler secret put HELIUS_API_KEY`) — required for `/v2/wallet-assets`; without it that endpoint 502s.
+6. Update `ME_PROXY_BASE` in `discover.html`, `slideshow.html`, and `wallet.html` to the real `*.workers.dev` URL Cloudflare assigns.
 
 **Every Worker code change needs a manual redeploy** — pushing to GitHub does not touch the live Worker.
 

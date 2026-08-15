@@ -32,6 +32,17 @@
  * from KV, mirrors ZurVault's /v2/dc-summary response shape) and
  * {WORKER_URL}/v2/tokens/{mint} etc. (pass-through proxy to Magic Eden,
  * same as ZurVault's Worker).
+ *
+ * {WORKER_URL}/v2/wallet-assets?address={pubkey} looks up everything a
+ * public Solana wallet owns via Helius, server-side. This is the fix for
+ * how ZurVault's old slideshow-legacy.html got itself flagged: that page
+ * had a live Helius API key hardcoded in client-side JS, readable by
+ * anyone via view-source. Here the key never leaves the Worker — bind it
+ * as a secret named HELIUS_API_KEY (Worker Settings → Variables →
+ * add secret, or `wrangler secret put HELIUS_API_KEY`), never paste it
+ * into any HTML/JS file. Requires its own Helius account/key; do not reuse
+ * ZurVault's old exposed key even here — treat that one as permanently
+ * compromised and get a fresh one.
  */
 
 const ME_ORIGIN = "https://api-mainnet.magiceden.dev";
@@ -46,6 +57,17 @@ const ALLOWED_ORIGINS = [
 ];
 
 const EDGE_CACHE_SECONDS = 60;
+
+// ---------------------------------------------------------------------
+// WALLET ASSETS — GET /v2/wallet-assets?address={pubkey}, backs
+// slideshow.html and wallet.html. Server-side Helius lookup so visitors
+// only ever provide a public address, never an API key (see file header).
+// ---------------------------------------------------------------------
+const HELIUS_ORIGIN = "https://mainnet.helius-rpc.com/";
+const SOL_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/; // base58, no 0/O/I/l
+const WALLET_CACHE_TTL_SECONDS = 90; // repeat loads of the same wallet within this window skip Helius entirely
+const WALLET_RATE_LIMIT_PER_HOUR = 30; // per IP, only counted on actual Helius calls (cache hits are free)
+const WALLET_ASSET_MAX_PAGES = 10; // Helius getAssetsByOwner, 1000/page — same cap slideshow-legacy.html used
 
 // ---------------------------------------------------------------------
 // SPAWN_COLLECTIONS — starts empty. Populate by hand from
@@ -270,6 +292,133 @@ async function buildSpawnSummary(env) {
 }
 
 // ---------------------------------------------------------------------
+// WALLET ASSETS — see the const block above for the constants used here.
+// ---------------------------------------------------------------------
+
+// Same shape as slideshow-legacy.html's parse() — kept intentionally
+// minimal (no full raw Helius payload forwarded to the client) so the
+// response stays small for wallets holding hundreds of assets.
+function parseHeliusAsset(a) {
+  const meta = (a.content && a.content.metadata) || {};
+  const links = (a.content && a.content.links) || {};
+  const files = (a.content && a.content.files) || [];
+  const grouping = (a.grouping || []).find((g) => g.group_key === "collection");
+  let image = links.image || links.animation_url || "";
+  if (!image) {
+    for (const f of files) {
+      const uri = f.cdn_uri || f.uri || "";
+      if (!uri) continue;
+      if (f.mime && f.mime.startsWith("image/")) { image = uri; break; }
+      if (!image) image = uri;
+    }
+  }
+  const collectionName =
+    (grouping && grouping.collection_metadata && grouping.collection_metadata.name) ||
+    (meta.collection && meta.collection.name) ||
+    meta.symbol || "";
+  return {
+    mint: a.id,
+    name: meta.name || (a.id ? a.id.slice(0, 8) : "Untitled"),
+    collectionKey: (grouping && grouping.group_value) || null,
+    collectionName,
+    image,
+    attributes: meta.attributes || [],
+  };
+}
+
+async function fetchWalletAssets(address, env) {
+  const rpcUrl = `${HELIUS_ORIGIN}?api-key=${env.HELIUS_API_KEY}`;
+  const assets = [];
+  for (let page = 1; page <= WALLET_ASSET_MAX_PAGES; page++) {
+    const res = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "zurcovers-wallet-assets",
+        method: "getAssetsByOwner",
+        params: {
+          ownerAddress: address, page, limit: 1000,
+          displayOptions: { showUnverifiedCollections: true, showCollectionMetadata: true, showNativeBalance: false },
+        },
+      }),
+    });
+    if (!res.ok) throw new Error(`Helius HTTP ${res.status}`);
+    const json = await res.json();
+    if (json.error) throw new Error(json.error.message || "Helius error");
+    const items = (json.result && json.result.items) || [];
+    for (const a of items) {
+      const isNftLike =
+        ["V1_NFT", "ProgrammableNFT", "V1_PRINT", "MplCoreAsset", "Custom"].includes(a.interface) ||
+        (a.interface && a.interface.toLowerCase().includes("nft"));
+      if (!isNftLike) continue;
+      const parsed = parseHeliusAsset(a);
+      if (parsed.image) assets.push(parsed);
+    }
+    if (items.length < 1000) break;
+  }
+  return assets;
+}
+
+// Only counted against actual Helius calls (see handleWalletAssets) — a
+// cached response costs nothing, so it doesn't touch this. Same eventual-
+// consistency tolerance as the click/gallery-view counters elsewhere in
+// this file: KV isn't a precise atomic counter, but that's fine for
+// deterring casual abuse rather than enforcing an exact quota.
+async function checkAndBumpRateLimit(ip, env) {
+  const hourBucket = Math.floor(Date.now() / 3600000);
+  const key = `ratelimit:wallet:${ip}:${hourBucket}`;
+  const current = parseInt((await env.ZURCOVERS_CACHE.get(key)) || "0", 10);
+  if (current >= WALLET_RATE_LIMIT_PER_HOUR) return false;
+  await env.ZURCOVERS_CACHE.put(key, String(current + 1), { expirationTtl: 3600 });
+  return true;
+}
+
+async function handleWalletAssets(request, env, corsHeaders) {
+  const url = new URL(request.url);
+  const address = (url.searchParams.get("address") || "").trim();
+  if (!SOL_ADDRESS_RE.test(address)) {
+    return new Response(JSON.stringify({ error: "invalid_address" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const cacheKey = `walletassets:${address}`;
+  const cached = await env.ZURCOVERS_CACHE.get(cacheKey);
+  if (cached) {
+    return new Response(cached, {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json", "X-Zurcovers-Wallet-Cache": "HIT" },
+    });
+  }
+
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  const allowed = await checkAndBumpRateLimit(ip, env);
+  if (!allowed) {
+    return new Response(JSON.stringify({ error: "rate_limited", retryAfterSeconds: 3600 }), {
+      status: 429,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const assets = await fetchWalletAssets(address, env);
+    const body = JSON.stringify({ wallet: address, count: assets.length, assets, fetchedAt: Date.now() });
+    await env.ZURCOVERS_CACHE.put(cacheKey, body, { expirationTtl: WALLET_CACHE_TTL_SECONDS });
+    return new Response(body, {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json", "X-Zurcovers-Wallet-Cache": "MISS" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: "wallet_lookup_failed", message: err.message }), {
+      status: 502,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+}
+
+// ---------------------------------------------------------------------
 
 export default {
   async fetch(request, env, ctx) {
@@ -285,6 +434,10 @@ export default {
     }
 
     const url = new URL(request.url);
+
+    if (url.pathname === "/v2/wallet-assets") {
+      return handleWalletAssets(request, env, corsHeaders);
+    }
 
     if (url.pathname === "/v2/spawn-summary") {
       const cache = caches.default;

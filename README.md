@@ -6,11 +6,19 @@ zurcovers.com — a spin-off test property from [ZurVault](https://zurvault.com)
 
 | File | What it does |
 |---|---|
-| `index.html` | Landing page. "Coming soon" placeholder with an upfront unofficial-fan-project disclosure — no wallet UI, no forms, no live data dependency yet. |
+| `index.html` | Landing page. "Coming soon" placeholder with an upfront unofficial-fan-project disclosure, plus links to `slideshow.html` and `wallet.html`. |
+| `slideshow.html` | Public page. Paste a public Solana wallet address, get a full-screen slideshow of that wallet's NFT covers — kiosk-style, no wallet-connect button, no API key ever touches the browser. Grouped by on-chain collection, same picker/shuffle/fullscreen UX as ZurVault's old slideshow. |
+| `wallet.html` | Public page. Same wallet-address input, but a list/grid view instead of full-screen playback — shows every held NFT grouped by collection, with the current Magic Eden floor price where that collection is still resolvable there. |
 | `discover.html` | **Internal tool, not linked from the public site** (same treatment as ZurVault's `discover.html`). Scans a wallet's owned assets via Helius, groups by on-chain collection, resolves each to a Magic Eden symbol, and outputs a `SPAWN_COLLECTIONS` config array to paste into `zurcovers-proxy-worker.js`. Plain wallet-address + Helius-API-key inputs (session-only key, never persisted) — no "Connect Wallet" button anywhere. |
 | `zurcovers-proxy-worker.js` | Source for the Cloudflare Worker. **In this repo, but not auto-deployed** — same manual paste-into-Cloudflare-dashboard story as ZurVault's `me-proxy-worker.js`. See Deploy steps below. |
 | `scripts/discover-spawn-collections.mjs` | One-off Magic Eden catalog scan for Spawn/OddKey collections by name/symbol match. **Hit a hard wall** — see "Known limitations" below. Superseded by the wallet-based `discover.html` approach; kept for reference, not part of the deployed site. |
 | `CNAME` | GitHub Pages custom domain (`zurcovers.com`). |
+
+## Why slideshow.html and wallet.html work the way they do
+
+ZurVault had an earlier version of this (`slideshow-legacy.html`, since pulled) that hardcoded a live Helius API key directly in client-side JavaScript — readable by anyone via view-source, and almost certainly why that page kept getting flagged. `zurcovers-proxy-worker.js` now exposes `GET /v2/wallet-assets?address={pubkey}` instead: the Worker holds the Helius key server-side (bound as the `HELIUS_API_KEY` secret, never committed to this repo), and the browser only ever sends a public wallet address. Neither page has a "Connect Wallet" button — public-address-only, view-only, by design, same reasoning `discover.html` already documented for its own key handling.
+
+Get a fresh Helius API key for this — **do not reuse ZurVault's old exposed key even server-side**; treat it as permanently compromised.
 
 ## Deploying the Worker
 
@@ -23,6 +31,7 @@ Cloudflare Workers get their own `*.workers.dev` subdomain automatically — the
 5. Create a KV namespace: **Workers & Pages → KV → Create**, name it `ZURCOVERS_CACHE`.
 6. Bind it to the Worker: **Worker Settings → Variables → KV Namespace Bindings** — variable name must be exactly `ZURCOVERS_CACHE` (the code references it by that name), pointing at the namespace just created.
 7. Add the Cron Trigger: **Worker Settings → Triggers → Cron Triggers** → add `*/20 * * * *` (every 20 minutes). Without this, `GET /v2/spawn-summary` just returns the `notReady` state forever — nothing else populates KV.
+8. Add the Helius secret: **Worker Settings → Variables → Secrets → Add** (or `wrangler secret put HELIUS_API_KEY`) — name it exactly `HELIUS_API_KEY`, value is your own Helius API key. Without this, `GET /v2/wallet-assets` (used by `slideshow.html` and `wallet.html`) returns a 502.
 
 Once deployed, update `ME_PROXY_BASE` in `discover.html` (currently a `zurcovers-proxy.YOURNAME.workers.dev` placeholder) to the real URL from step 4. The same constant will need updating in every future page that reads `/v2/spawn-summary` (listings page, gallery) once those exist.
 
