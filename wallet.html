@@ -249,7 +249,7 @@ async function loadWallet(address){
 
   setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Looking up floor prices…`);
   caveatEl.style.display = 'block';
-  render(groups); // first paint with no prices yet, so the wallet's contents show up immediately
+  render(groups); // one full paint, prices start as "…" — resolved prices patch in place below, never a second full re-render
 
   let done = 0;
   for(const key of groupKeys){
@@ -257,7 +257,7 @@ async function loadWallet(address){
     groups[key].floor = symbol ? await fetchFloorPrice(symbol) : null;
     done++;
     setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Floor prices: ${done}/${groupKeys.length}…`);
-    render(groups);
+    updatePriceForGroup(key, groups[key].floor);
     await sleep(LOOKUP_PACE_MS);
   }
 
@@ -289,18 +289,17 @@ function groupByName(items){
   return [...byName.values()];
 }
 
+// Rendered exactly once per loadWallet() call (see below for why) — each
+// card carries data-group so a later price update can find just its own
+// cards without touching anyone else's <img>.
 function render(groups){
   const cards = [];
   for(const key of Object.keys(groups)){
     const g = groups[key];
-    const floorKnown = g.floor !== undefined;
-    const floorText = g.floor === null || g.floor === undefined
-      ? (floorKnown ? 'no ME data' : '…')
-      : `${g.floor.toFixed(4)} SOL`;
     for(const { representative: item, count } of groupByName(g.items)){
       const pdpUrl = `https://magiceden.io/item-details/${item.mint}`;
       cards.push(`
-        <a class="card" href="${esc(pdpUrl)}" target="_blank" rel="noopener">
+        <a class="card" href="${esc(pdpUrl)}" target="_blank" rel="noopener" data-group="${esc(key)}">
           <div class="img-wrap">
             <img src="${esc(item.image)}" loading="lazy" onerror="this.style.opacity=0.2">
             ${count > 1 ? `<div class="qty-badge">&times;${count}</div>` : ''}
@@ -308,7 +307,7 @@ function render(groups){
           <div class="body">
             <div class="sub">${esc(g.name)}</div>
             <div class="name">${esc(cleanTitle(item.name) || item.name)}</div>
-            <div class="price ${g.floor ? '' : 'unavailable'}">${floorText}</div>
+            <div class="price unavailable" data-price>…</div>
             <div class="floor-label">collection floor</div>
             <div class="me-tag">View on Magic Eden &#8599;</div>
           </div>
@@ -317,6 +316,22 @@ function render(groups){
     }
   }
   gridEl.innerHTML = cards.join('');
+}
+
+// Patches just the price text/class on this group's already-rendered
+// cards — no innerHTML rewrite, so no image gets torn down and
+// recreated. This is what actually fixes the flicker: rebuilding the
+// whole grid on every resolved price was destroying and reloading every
+// <img> in the grid each time, not just the one that changed.
+function updatePriceForGroup(key, floor){
+  const floorText = (floor === null || floor === undefined) ? 'no ME data' : `${floor.toFixed(4)} SOL`;
+  gridEl.querySelectorAll('.card').forEach(card => {
+    if(card.dataset.group !== key) return;
+    const priceEl = card.querySelector('[data-price]');
+    if(!priceEl) return;
+    priceEl.textContent = floorText;
+    priceEl.classList.toggle('unavailable', !floor);
+  });
 }
 
 function go(){
