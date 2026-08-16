@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0a0a0a">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<link rel="manifest" href="site.webmanifest">
+<title>Buying Activity — zurcovers</title>
+<meta name="description" content="See which DC collections a public Solana wallet has been buying into on Magic Eden, without checking every collection page yourself.">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  :root{
+    --ink:    #0a0a0a;
+    --gold:   #8f6fe8;
+    --deep:   #6b2fd6;
+    --cyan:   #4de8ff;
+    --border: rgba(255,255,255,0.07);
+  }
+
+  body{
+    background:var(--ink); color:#fff; min-height:100vh;
+    font-family:'DM Mono',monospace; -webkit-font-smoothing:antialiased;
+  }
+
+  #grain{
+    position:fixed; inset:0; z-index:0; pointer-events:none; opacity:0.025;
+    background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  header{
+    position:relative; z-index:1; padding:44px 32px 22px; border-bottom:1px solid var(--border);
+    background:radial-gradient(ellipse at top, rgba(107,47,214,0.16), transparent 60%);
+  }
+  header .brand{ font-size:.7rem; letter-spacing:.4em; color:rgba(255,255,255,0.22); text-transform:uppercase; }
+  header .brand a{ color:rgba(255,255,255,0.22); text-decoration:none; }
+  header .brand a:hover{ color:var(--gold); }
+  header h1{
+    font-family:'Cormorant Garamond',serif; font-weight:300; letter-spacing:.02em;
+    font-size:clamp(1.9rem,5vw,2.8rem); color:rgba(255,255,255,0.92); margin-top:10px;
+  }
+  header h1 span{ color:var(--gold); }
+  header .sub{ margin-top:10px; font-size:.85rem; letter-spacing:.02em; line-height:1.7; color:rgba(255,255,255,0.55); max-width:560px; }
+
+  .nav-links{ margin-top:16px; display:flex; gap:14px; flex-wrap:wrap; }
+  .nav-links a{ font-size:.62rem; letter-spacing:.16em; text-transform:uppercase; color:rgba(143,111,232,0.6); text-decoration:none; border:1px solid rgba(143,111,232,0.2); padding:6px 14px; border-radius:2px; transition:all .15s; }
+  .nav-links a:hover{ color:var(--gold); border-color:rgba(143,111,232,0.5); }
+
+  .entry-panel{
+    position:relative; z-index:1; padding:18px 32px; border-bottom:1px solid var(--border);
+    display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+  }
+  .entry-panel input{
+    flex:1; min-width:220px; background:rgba(0,0,0,0.5); border:1px solid var(--border); color:rgba(255,255,255,0.85);
+    font-family:'DM Mono',monospace; font-size:.72rem; padding:11px 13px; border-radius:2px; outline:none;
+  }
+  .entry-panel input:focus{ border-color:rgba(143,111,232,0.5); }
+  .entry-panel button{
+    background:linear-gradient(135deg, var(--deep), var(--gold)); border:1px solid rgba(143,111,232,0.5); color:#fff;
+    font-family:'DM Mono',monospace; font-size:.62rem; letter-spacing:.16em; text-transform:uppercase;
+    padding:11px 18px; border-radius:2px; cursor:pointer; transition:filter .15s;
+  }
+  .entry-panel button:hover{ filter:brightness(1.12); }
+
+  #status{ position:relative; z-index:1; padding:16px 32px; font-size:.62rem; letter-spacing:.08em; color:rgba(255,255,255,0.35); text-transform:uppercase; }
+  #status.err{ color:#e07a5f; }
+  #status .dot{ display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--cyan); margin-right:8px; }
+
+  .summary-row{
+    position:relative; z-index:1; margin:0 32px 20px; padding:14px 18px;
+    border:1px solid rgba(77,232,255,0.18); border-radius:4px; background:rgba(77,232,255,0.05);
+    font-size:.78rem; line-height:1.8; color:rgba(255,255,255,0.7);
+  }
+  .summary-row b{ color:#fff; font-weight:500; }
+
+  .table{
+    position:relative; z-index:1; display:flex; flex-direction:column; gap:1px;
+    background:var(--border); padding:1px 32px 60px; margin-top:1px;
+  }
+  .row{
+    background:var(--ink); display:flex; align-items:center; gap:16px; padding:14px 18px;
+    text-decoration:none; color:#fff; transition:background .15s;
+  }
+  .row:hover{ background:rgba(255,255,255,0.03); }
+  .row .rank{ flex-shrink:0; width:26px; text-align:center; font-family:'DM Mono',monospace; font-size:.7rem; color:rgba(143,111,232,0.6); }
+  .row .info{ flex:1; min-width:0; }
+  .row .name{
+    font-family:'Cormorant Garamond',serif; font-size:1.15rem; line-height:1.25; color:rgba(255,255,255,0.9);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .row .symbol{ font-family:'DM Mono',monospace; font-size:.6rem; letter-spacing:.05em; color:rgba(255,255,255,0.3); margin-top:2px; }
+  .row .stats-col{ flex-shrink:0; text-align:right; }
+  .row .count{ font-family:'DM Mono',monospace; font-size:.9rem; color:rgba(255,255,255,0.9); }
+  .row .spent{ font-family:'DM Mono',monospace; font-size:.68rem; color:rgba(77,232,255,0.75); margin-top:2px; }
+  .row .recency{ font-family:'DM Mono',monospace; font-size:.62rem; color:rgba(255,255,255,0.4); margin-top:2px; text-transform:uppercase; }
+  .row .me-tag{ font-family:'DM Mono',monospace; font-size:.58rem; letter-spacing:.05em; text-transform:uppercase; color:rgba(77,232,255,0.7); margin-top:2px; }
+
+  .empty{ position:relative; z-index:1; padding:60px 32px; text-align:center; color:rgba(255,255,255,0.25); font-family:'Cormorant Garamond',serif; font-size:1.2rem; font-weight:300; line-height:1.6; }
+
+  .disclosures{ position:relative; z-index:1; padding:16px 32px 4px; display:flex; flex-direction:column; gap:10px; }
+  .disclosure-box{ padding:12px 16px; border-radius:4px; font-size:.76rem; line-height:1.7; }
+  .disclosure-box.warn{ border:1px solid rgba(224,122,95,0.3); background:rgba(224,122,95,0.07); color:rgba(255,255,255,0.65); }
+  .disclosure-box.warn strong{ color:#e07a5f; font-weight:500; }
+  .disclosure-box.info{ border:1px solid rgba(77,232,255,0.2); background:rgba(77,232,255,0.05); color:rgba(255,255,255,0.5); }
+
+  footer{ position:relative; z-index:1; padding:28px 32px 44px; text-align:center; font-size:.5rem; letter-spacing:.12em; color:rgba(255,255,255,0.15); text-transform:uppercase; }
+  footer a{ color:rgba(143,111,232,0.5); text-decoration:none; }
+  footer a:hover{ color:var(--gold); }
+</style>
+</head>
+<body>
+<div id="grain"></div>
+
+<header>
+  <div class="brand"><a href="index.html">zurcovers</a> / Buying Activity</div>
+  <h1>Buying <span>Activity</span></h1>
+  <div class="sub">Paste a public Solana wallet address to see which DC collections it's been buying into on Magic Eden — one call, no need to check every collection yourself. Public address only — no wallet connection, no signing.</div>
+  <div class="nav-links">
+    <a href="wallet.html">My Wallet</a>
+    <a href="collections.html">By Collection &amp; Rarity</a>
+    <a href="slideshow.html">Full-Screen Slideshow &#8599;</a>
+    <a href="index.html">Home</a>
+  </div>
+</header>
+
+<div class="entry-panel">
+  <input type="text" id="wallet-input" placeholder="paste a public wallet address" autocapitalize="off" autocorrect="off" spellcheck="false">
+  <button id="load-btn">Check Activity</button>
+</div>
+
+<div id="status"></div>
+<div class="summary-row" id="summary-row" style="display:none"></div>
+<div class="table" id="table"></div>
+
+<div class="disclosures">
+  <div class="disclosure-box warn"><strong>Never share your private key or seed phrase with anyone, including here.</strong> This page only ever needs a <strong>public</strong> wallet address — the same address anyone could already look up on a block explorer. It never asks for anything else.</div>
+  <div class="disclosure-box info">Unofficial fan project &mdash; not affiliated with, endorsed by, or sponsored by DC Comics, Warner Bros. Discovery, Candy Digital, or Magic Eden. Purchase history shown is Magic Eden's own public activity log for this address, not anything zurcovers tracks or stores.</div>
+</div>
+
+<footer>
+  Activity data via Magic Eden public API · <a href="index.html">zurcovers.com</a>
+</footer>
+
+<script>
+const ME_PROXY_BASE = "https://zurcovers-proxy.stholt.workers.dev";
+const ME_BASE = ME_PROXY_BASE + "/v2";
+const WALLET_KEY = 'zurcovers_wallet';
+const SOL_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const ACTIVITY_PAGE_SIZE = 100;
+const ACTIVITY_MAX_PAGES = 10; // caps at 1000 most-recent activity events, plenty for spotting a recent buying pattern
+
+const statusEl = document.getElementById('status');
+const summaryRowEl = document.getElementById('summary-row');
+const tableEl = document.getElementById('table');
+const walletInputEl = document.getElementById('wallet-input');
+const loadBtnEl = document.getElementById('load-btn');
+
+function setStatus(msg, isErr){
+  statusEl.innerHTML = (isErr ? '' : '<span class="dot"></span>') + msg;
+  statusEl.classList.toggle('err', !!isErr);
+}
+
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+
+function timeAgo(blockTimeSecs){
+  const secs = Date.now() / 1000 - blockTimeSecs;
+  if(secs < 60) return 'just now';
+  if(secs < 3600) return Math.floor(secs / 60) + 'm ago';
+  if(secs < 86400) return Math.floor(secs / 3600) + 'h ago';
+  return Math.floor(secs / 86400) + 'd ago';
+}
+
+async function fetchAllActivities(address){
+  let all = [];
+  for(let page = 0; page < ACTIVITY_MAX_PAGES; page++){
+    const res = await fetch(`${ME_BASE}/wallets/${address}/activities?offset=${page * ACTIVITY_PAGE_SIZE}&limit=${ACTIVITY_PAGE_SIZE}`);
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const batch = await res.json();
+    if(!Array.isArray(batch) || batch.length === 0) break;
+    all = all.concat(batch);
+    if(batch.length < ACTIVITY_PAGE_SIZE) break;
+  }
+  return all;
+}
+
+async function loadActivity(address){
+  tableEl.innerHTML = '';
+  summaryRowEl.style.display = 'none';
+  setStatus('Fetching activity from Magic Eden…');
+
+  let activities;
+  try{
+    activities = await fetchAllActivities(address);
+  }catch(e){
+    setStatus('Could not load activity: ' + e.message, true);
+    return;
+  }
+
+  // "buyNow" (direct purchase) and "acceptBid" (seller accepts an offer)
+  // are the two activity types that represent a completed purchase by
+  // this wallet — "bid" (an open offer, not yet filled) and "list"/
+  // "delist" are not purchases, even though a buyNow event is typically
+  // paired with a same-signature "bid" record in this API's own output.
+  const purchases = activities.filter(a => (a.type === 'buyNow' || a.type === 'acceptBid') && a.buyer === address);
+
+  if(purchases.length === 0){
+    setStatus(`No purchases found in this wallet's recent activity (${activities.length} total event(s) checked).`, true);
+    return;
+  }
+
+  const byCollection = new Map();
+  for(const p of purchases){
+    const symbol = p.collectionSymbol || p.collection || 'unknown';
+    if(!byCollection.has(symbol)) byCollection.set(symbol, { symbol, count: 0, totalSpent: 0, mostRecent: 0 });
+    const c = byCollection.get(symbol);
+    c.count++;
+    c.totalSpent += (p.price || 0);
+    if((p.blockTime || 0) > c.mostRecent) c.mostRecent = p.blockTime || 0;
+  }
+
+  const ranked = [...byCollection.values()].sort((a, b) => b.count - a.count || b.mostRecent - a.mostRecent);
+
+  const totalSpent = purchases.reduce((sum, p) => sum + (p.price || 0), 0);
+  const oldestBuy = Math.min(...purchases.map(p => p.blockTime || Infinity));
+  summaryRowEl.innerHTML = `<b>${purchases.length}</b> purchase${purchases.length !== 1 ? 's' : ''} across <b>${byCollection.size}</b> collection${byCollection.size !== 1 ? 's' : ''} &middot; <b>${totalSpent.toFixed(3)} SOL</b> total spent &middot; earliest buy in this window: ${timeAgo(oldestBuy)}`;
+  summaryRowEl.style.display = 'block';
+
+  tableEl.innerHTML = ranked.map((c, idx) => `
+    <a class="row" href="https://magiceden.io/marketplace/${esc(c.symbol)}" target="_blank" rel="noopener">
+      <div class="rank">#${idx + 1}</div>
+      <div class="info">
+        <div class="name">${esc(c.symbol)}</div>
+      </div>
+      <div class="stats-col">
+        <div class="count">${c.count} bought</div>
+        <div class="spent">${c.totalSpent.toFixed(3)} SOL spent</div>
+        <div class="recency">last buy ${timeAgo(c.mostRecent)}</div>
+        <div class="me-tag">Magic Eden &#8599;</div>
+      </div>
+    </a>
+  `).join('');
+
+  const activityWindowNote = activities.length >= ACTIVITY_PAGE_SIZE * ACTIVITY_MAX_PAGES
+    ? ` (checked the ${activities.length} most recent activity events — this wallet has more history than that, older purchases aren't reflected here)`
+    : '';
+  setStatus(`${purchases.length} purchase(s) across ${byCollection.size} collection(s)${activityWindowNote}.`);
+}
+
+function go(){
+  const addr = walletInputEl.value.trim();
+  if(!SOL_ADDRESS_RE.test(addr)){
+    setStatus("That doesn't look like a valid Solana address.", true);
+    return;
+  }
+  localStorage.setItem(WALLET_KEY, addr);
+  history.replaceState(null, '', '?wallet=' + encodeURIComponent(addr));
+  loadActivity(addr);
+}
+loadBtnEl.addEventListener('click', go);
+walletInputEl.addEventListener('keydown', (e) => { if(e.key === 'Enter') go(); });
+
+(function init(){
+  const urlWallet = new URLSearchParams(window.location.search).get('wallet');
+  const saved = localStorage.getItem(WALLET_KEY);
+  const addr = (urlWallet && SOL_ADDRESS_RE.test(urlWallet)) ? urlWallet : saved;
+  if(addr){
+    walletInputEl.value = addr;
+    loadActivity(addr);
+  } else {
+    setStatus('Paste a public wallet address above to get started.');
+  }
+})();
+</script>
+</body>
+</html>
