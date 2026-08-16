@@ -84,6 +84,21 @@
   }
   .entry-panel button:hover{ filter:brightness(1.12); }
 
+  .search-row{ position:relative; z-index:1; padding:0 32px 16px; }
+  .search-row input{
+    width:100%; max-width:420px; background:rgba(0,0,0,0.5); border:1px solid var(--border); color:rgba(255,255,255,0.85);
+    font-family:'DM Mono',monospace; font-size:.72rem; padding:10px 13px; border-radius:2px; outline:none;
+  }
+  .search-row input:focus{ border-color:rgba(143,111,232,0.5); }
+
+  .gap-summary{
+    position:relative; z-index:1; margin:0 32px 16px; padding:12px 16px;
+    border:1px solid rgba(251,191,36,0.3); border-radius:4px; background:rgba(251,191,36,0.06);
+    font-size:.74rem; line-height:1.8; color:rgba(255,255,255,0.7);
+  }
+  .gap-summary .series{ color:#fbbf24; }
+  .gap-summary .missing{ color:#e07a5f; }
+
   .controls-row{
     position:relative; z-index:1; padding:0 32px 16px; display:flex; gap:18px; flex-wrap:wrap;
   }
@@ -159,7 +174,7 @@
      never be surprised that clicking a card leaves this site. */
   .card .me-tag{ font-family:'DM Mono',monospace; font-size:.62rem; letter-spacing:.05em; text-transform:uppercase; color:rgba(77,232,255,0.7); margin-top:4px; }
 
-  .empty{ position:relative; z-index:1; padding:60px 32px; text-align:center; color:rgba(255,255,255,0.25); font-family:'Cormorant Garamond',serif; font-size:1.2rem; font-weight:300; line-height:1.6; }
+  .empty{ grid-column:1/-1; position:relative; z-index:1; padding:60px 32px; text-align:center; color:rgba(255,255,255,0.25); font-family:'Cormorant Garamond',serif; font-size:1.2rem; font-weight:300; line-height:1.6; }
 
   footer{ position:relative; z-index:1; padding:28px 32px 44px; text-align:center; font-size:.5rem; letter-spacing:.12em; color:rgba(255,255,255,0.15); text-transform:uppercase; }
   footer a{ color:rgba(143,111,232,0.5); text-decoration:none; }
@@ -186,6 +201,10 @@
   <button id="load-btn">Load Wallet</button>
 </div>
 
+<div class="search-row" id="search-row" style="display:none">
+  <input type="text" id="search-input" placeholder="Search your wallet, e.g. &quot;Absolute Batman&quot;" autocomplete="off">
+</div>
+
 <div class="controls-row" id="controls-row" style="display:none">
   <div class="control-group">
     <span class="control-label">Group by</span>
@@ -203,6 +222,7 @@
 <div class="caveat" id="caveat" style="display:none">
   Small/unfamiliar "collection" entries in a wallet are often unsolicited airdrop NFTs, not anything you acquired — Magic Eden simply not recognizing one is common and not itself a red flag. Never interact with anything claiming you need to "claim" a reward.
 </div>
+<div class="gap-summary" id="gap-summary" style="display:none"></div>
 <div class="grid" id="grid"></div>
 
 <div class="disclosures">
@@ -228,6 +248,9 @@ const caveatEl = document.getElementById('caveat');
 const gridEl = document.getElementById('grid');
 const walletInputEl = document.getElementById('wallet-input');
 const loadBtnEl = document.getElementById('load-btn');
+const searchRowEl = document.getElementById('search-row');
+const searchInputEl = document.getElementById('search-input');
+const gapSummaryEl = document.getElementById('gap-summary');
 const controlsRowEl = document.getElementById('controls-row');
 const groupCollectionBtn = document.getElementById('group-collection');
 const groupRarityBtn = document.getElementById('group-rarity');
@@ -240,6 +263,7 @@ let allGroups = {};
 let flatCards = [];
 let groupMode = 'collection'; // 'collection' | 'rarity'
 let sortMode = 'default';     // 'default' | 'price-desc'
+let searchQuery = '';
 
 function setStatus(msg, isErr){
   statusEl.innerHTML = (isErr ? '' : '<span class="dot"></span>') + msg;
@@ -319,9 +343,13 @@ async function fetchListingsRarityFloors(symbol){
 async function loadWallet(address){
   gridEl.innerHTML = '';
   caveatEl.style.display = 'none';
+  searchRowEl.style.display = 'none';
+  gapSummaryEl.style.display = 'none';
   controlsRowEl.style.display = 'none';
   groupMode = 'collection';
   sortMode = 'default';
+  searchQuery = '';
+  searchInputEl.value = '';
   setGroupButtons();
   setSortButtons();
   setStatus('Fetching wallet assets…');
@@ -356,7 +384,8 @@ async function loadWallet(address){
 
   setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Looking up floor prices…`);
   caveatEl.style.display = 'block';
-  render(allGroups); // one full paint, prices start as "…" — resolved prices patch in place below, never a second full re-render
+  searchRowEl.style.display = 'block';
+  renderAll(); // one full paint, prices start as "…" — resolved prices patch in place below via data-group/data-price, never a second full rebuild during loading
 
   let done = 0;
   for(const key of groupKeys){
@@ -399,40 +428,14 @@ function groupByName(items){
   return [...byName.values()];
 }
 
-// Rendered exactly once per loadWallet() call (see below for why) — each
-// card carries data-group so a later price update can find just its own
-// cards without touching anyone else's <img>.
-function render(groups){
-  const cards = [];
-  for(const key of Object.keys(groups)){
-    const g = groups[key];
-    for(const { representative: item, count } of groupByName(g.items)){
-      const pdpUrl = `https://magiceden.io/item-details/${item.mint}`;
-      cards.push(`
-        <a class="card" href="${esc(pdpUrl)}" target="_blank" rel="noopener" data-group="${esc(key)}">
-          <div class="img-wrap">
-            <img src="${esc(item.image)}" loading="lazy" onerror="this.style.opacity=0.2">
-            ${count > 1 ? `<div class="qty-badge">&times;${count}</div>` : ''}
-          </div>
-          <div class="body">
-            <div class="sub">${esc(g.name)}</div>
-            <div class="name">${esc(cleanTitle(item.name) || item.name)}</div>
-            <div class="price unavailable" data-price>…</div>
-            <div class="floor-label">collection floor</div>
-            <div class="me-tag">View on Magic Eden &#8599;</div>
-          </div>
-        </a>
-      `);
-    }
-  }
-  gridEl.innerHTML = cards.join('');
-}
-
 // Patches just the price text/class on this group's already-rendered
 // cards — no innerHTML rewrite, so no image gets torn down and
 // recreated. This is what actually fixes the flicker: rebuilding the
 // whole grid on every resolved price was destroying and reloading every
-// <img> in the grid each time, not just the one that changed.
+// <img> in the grid each time, not just the one that changed. Works
+// against whatever renderAll() last put in the DOM (default view,
+// filtered-by-search view, whatever) since every card it produces
+// carries the same data-group/data-price markers.
 function updatePriceForGroup(key, floor){
   const floorText = (floor === null || floor === undefined) ? 'no ME data' : `${floor.toFixed(4)} SOL`;
   gridEl.querySelectorAll('.card').forEach(card => {
@@ -490,15 +493,76 @@ function rarityClass(label){
   return label ? 'rarity-' + label.toLowerCase() : '';
 }
 
-// Full rebuild, grouped into sections (by collection or by rarity) and
-// optionally sorted by price — only ever called from an explicit user
-// click on the Group/Sort controls (after the initial load has already
-// finished), never from the progressive-loading loop above, so this
-// doesn't reintroduce the full-grid-rebuild flicker that render()/
-// updatePriceForGroup() were built to avoid.
+// Most of these DC3/candy.io drops bake a "#N" issue number right into
+// the NFT's own name (confirmed live: "Superman '78 (2021-2022) #1",
+// "Absolute Batman (2024-) #7", etc. — cleanTitle() already strips any
+// trailing bare serial like " 479" but deliberately leaves "#N" alone,
+// since it's preceded by a non-space character). That's enough to spot
+// gaps in a numbered run purely from what's in the wallet — no need to
+// know the true full published range, just whether every number between
+// the lowest and highest owned copy is actually present.
+function extractIssueNumber(title){
+  const m = /#(\d+)\s*$/.exec(title);
+  return m ? parseInt(m[1], 10) : null;
+}
+function seriesBaseName(title){
+  return title.replace(/\s*#\d+\s*$/, '').trim();
+}
+
+// Only meaningful when a search is actually narrowing things down to
+// roughly one series — computed off the post-filter card list, not the
+// whole wallet, so it doesn't try to gap-check every numbered series a
+// visitor happens to own at once.
+function computeGapSummary(cards){
+  const bySeries = new Map();
+  for(const c of cards){
+    const num = extractIssueNumber(c.title);
+    if(num === null) continue;
+    const base = seriesBaseName(c.title);
+    if(!bySeries.has(base)) bySeries.set(base, new Set());
+    bySeries.get(base).add(num);
+  }
+  const lines = [];
+  for(const [base, nums] of bySeries){
+    if(nums.size < 2) continue; // need at least 2 owned issues to talk about a "range"
+    const sorted = [...nums].sort((a, b) => a - b);
+    const min = sorted[0], max = sorted[sorted.length - 1];
+    const missing = [];
+    for(let n = min; n <= max; n++) if(!nums.has(n)) missing.push(n);
+    if(missing.length > 0){
+      lines.push(`<span class="series">${esc(base)}</span>: you have #${sorted.join(', #')} — missing <span class="missing">#${missing.join(', #')}</span> between #${min} and #${max}. (Can't tell if the series goes past #${max} — only reflects what's actually numbered in your wallet.)`);
+    }
+  }
+  return lines;
+}
+
+// Full rebuild, filtered by search, grouped into sections (by collection
+// or by rarity), and optionally sorted by price — called for the
+// initial paint AND every subsequent search/group/sort change. Every
+// card carries data-group/data-price so updatePriceForGroup() can keep
+// patching prices in place afterward no matter which of those triggered
+// the most recent rebuild — that's what keeps this flicker-free even
+// though search can be used while prices are still loading.
 function renderAll(){
+  const q = searchQuery.trim().toLowerCase();
+  const visibleCards = q
+    ? flatCards.filter(c => c.collName.toLowerCase().includes(q) || c.title.toLowerCase().includes(q))
+    : flatCards;
+
+  if(q){
+    const gapLines = computeGapSummary(visibleCards);
+    if(gapLines.length > 0){
+      gapSummaryEl.innerHTML = gapLines.join('<br>');
+      gapSummaryEl.style.display = 'block';
+    } else {
+      gapSummaryEl.style.display = 'none';
+    }
+  } else {
+    gapSummaryEl.style.display = 'none';
+  }
+
   const sections = new Map(); // sectionKey -> { label, cards }
-  for(const card of flatCards){
+  for(const card of visibleCards){
     const sKey = groupMode === 'rarity' ? (card.rarity || 'No rarity data') : card.key;
     const label = groupMode === 'rarity' ? (card.rarity || 'No rarity data') : card.collName;
     if(!sections.has(sKey)) sections.set(sKey, { label, cards: [] });
@@ -525,7 +589,7 @@ function renderAll(){
     for(const c of s.cards){
       const pdpUrl = `https://magiceden.io/item-details/${c.mint}`;
       html += `
-        <a class="card" href="${esc(pdpUrl)}" target="_blank" rel="noopener">
+        <a class="card" href="${esc(pdpUrl)}" target="_blank" rel="noopener" data-group="${esc(c.key)}">
           <div class="img-wrap">
             <img src="${esc(c.image)}" loading="lazy" onerror="this.style.opacity=0.2">
             ${c.count > 1 ? `<div class="qty-badge">&times;${c.count}</div>` : ''}
@@ -534,7 +598,7 @@ function renderAll(){
             <div class="sub">${esc(c.collName)}</div>
             <div class="name">${esc(c.title)}</div>
             ${c.rarity ? `<div class="rarity-badge ${rarityClass(c.rarity)}">${esc(c.rarity)}</div>` : ''}
-            <div class="price ${c._price.value === null ? 'unavailable' : ''}">${c._price.text}</div>
+            <div class="price ${c._price.value === null ? 'unavailable' : ''}" data-price>${c._price.text}</div>
             <div class="floor-label">${groupMode === 'rarity' && c.rarity ? 'this rarity, lowest listed' : 'collection floor'}</div>
             <div class="me-tag">View on Magic Eden &#8599;</div>
           </div>
@@ -542,7 +606,7 @@ function renderAll(){
       `;
     }
   }
-  gridEl.innerHTML = html || '<div class="empty">Nothing to show yet.</div>';
+  gridEl.innerHTML = html || `<div class="empty">${q ? 'Nothing matches that search.' : 'Nothing to show yet.'}</div>`;
 }
 
 function setGroupButtons(){
@@ -594,6 +658,14 @@ sortPriceBtn.addEventListener('click', async () => {
   sortMode = 'price-desc';
   setSortButtons();
   if(groupMode === 'rarity') await ensureRarityFloorsLoaded();
+  renderAll();
+});
+
+// Search works immediately, even while floor prices are still loading —
+// unlike Group/Sort it needs no extra API calls, just a filter over
+// flatCards, so there's no reason to gate it behind full-load-completion.
+searchInputEl.addEventListener('input', () => {
+  searchQuery = searchInputEl.value;
   renderAll();
 });
 
