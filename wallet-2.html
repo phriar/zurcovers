@@ -126,6 +126,12 @@
     background:rgba(255,255,255,0.05);
   }
   .comic:hover .cover{ box-shadow:0 16px 32px rgba(0,0,0,0.6); }
+  .comic .no-preview{
+    width:100%; aspect-ratio:2/3; display:flex; align-items:center; justify-content:center; text-align:center;
+    padding:10px; border-radius:2px; background:rgba(255,255,255,0.05); color:rgba(243,239,230,0.4);
+    font-family:'DM Mono',monospace; font-size:.6rem; letter-spacing:.05em; text-transform:uppercase; line-height:1.6;
+    box-shadow:0 6px 16px rgba(0,0,0,0.5);
+  }
 
   /* Garage-sale-sticker price tag, hanging off the bottom-right corner —
      visually distinct from wallet.html's plain floor-price line on purpose. */
@@ -366,7 +372,7 @@ function render(groups){
       const tilt = hashTilt(item.mint) + 'deg';
       comics.push(`
         <a class="comic" style="--tilt:${tilt}" href="${esc(pdpUrl)}" target="_blank" rel="noopener" data-group="${esc(key)}">
-          <img class="cover" src="${esc(item.image)}" loading="lazy" onerror="this.style.opacity=0.2">
+          ${item.image ? `<img class="cover" src="${esc(item.image)}" loading="lazy" onerror="this.style.opacity=0.2">` : `<div class="no-preview">No preview available</div>`}
           ${count > 1 ? `<div class="qty-sticker">&times;${count}</div>` : ''}
           <div class="price-tag unavailable" data-price>…</div>
           <div class="caption">
@@ -427,7 +433,7 @@ function renderAll(){
     const priceTagText = c.floor === null || c.floor === undefined ? (c.floor === null ? 'no ME data' : '…') : `${c.floor.toFixed(3)} SOL`;
     return `
       <a class="comic" style="--tilt:${tilt}" href="${esc(pdpUrl)}" target="_blank" rel="noopener">
-        <img class="cover" src="${esc(c.image)}" loading="lazy" onerror="this.style.opacity=0.2">
+        ${c.image ? `<img class="cover" src="${esc(c.image)}" loading="lazy" onerror="this.style.opacity=0.2">` : `<div class="no-preview">No preview available</div>`}
         ${c.count > 1 ? `<div class="qty-sticker">&times;${c.count}</div>` : ''}
         <div class="price-tag ${c.floor ? '' : 'unavailable'}">${priceTagText}</div>
         <div class="caption">

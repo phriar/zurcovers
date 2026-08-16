@@ -152,6 +152,11 @@
   .card:hover{ background:rgba(255,255,255,0.03); }
   .card .img-wrap{ position:relative; }
   .card img{ width:100%; aspect-ratio:2/3; object-fit:cover; background:rgba(255,255,255,0.03); display:block; }
+  .no-preview{
+    width:100%; aspect-ratio:2/3; display:flex; align-items:center; justify-content:center; text-align:center;
+    padding:10px; background:rgba(255,255,255,0.03); color:rgba(255,255,255,0.3);
+    font-family:'DM Mono',monospace; font-size:.6rem; letter-spacing:.05em; text-transform:uppercase; line-height:1.6;
+  }
   .qty-badge{
     position:absolute; top:8px; right:8px; background:rgba(0,0,0,0.75); backdrop-filter:blur(4px);
     color:#fff; font-family:'DM Mono',monospace; font-size:.7rem; letter-spacing:.03em;
@@ -591,7 +596,7 @@ function renderAll(){
       html += `
         <a class="card" href="${esc(pdpUrl)}" target="_blank" rel="noopener" data-group="${esc(c.key)}">
           <div class="img-wrap">
-            <img src="${esc(c.image)}" loading="lazy" onerror="this.style.opacity=0.2">
+            ${c.image ? `<img src="${esc(c.image)}" loading="lazy" onerror="this.style.opacity=0.2">` : `<div class="no-preview">No preview available</div>`}
             ${c.count > 1 ? `<div class="qty-badge">&times;${c.count}</div>` : ''}
           </div>
           <div class="body">

@@ -107,6 +107,11 @@
   }
   .coll-card:hover{ background:rgba(255,255,255,0.03); }
   .coll-card img{ width:100%; aspect-ratio:2/3; object-fit:cover; background:rgba(255,255,255,0.03); display:block; }
+  .coll-card .no-preview{
+    width:100%; aspect-ratio:2/3; display:flex; align-items:center; justify-content:center; text-align:center;
+    padding:10px; background:rgba(255,255,255,0.03); color:rgba(255,255,255,0.3);
+    font-family:'DM Mono',monospace; font-size:.6rem; letter-spacing:.05em; text-transform:uppercase; line-height:1.6;
+  }
   .coll-card .body{ padding:12px 14px 16px; }
   .coll-card .name{
     font-family:'Cormorant Garamond',serif; font-weight:400; font-size:1.1rem; line-height:1.25;
@@ -120,6 +125,11 @@
   .comics-list{ position:relative; z-index:1; padding:20px 32px 60px; display:flex; flex-direction:column; gap:1px; background:var(--border); margin-top:16px; }
   .comic-row{ background:var(--ink); display:flex; gap:16px; padding:16px; }
   .comic-row img{ width:70px; height:105px; object-fit:cover; border-radius:2px; flex-shrink:0; background:rgba(255,255,255,0.03); }
+  .comic-row .no-preview{
+    width:70px; height:105px; flex-shrink:0; display:flex; align-items:center; justify-content:center; text-align:center;
+    padding:6px; border-radius:2px; background:rgba(255,255,255,0.03); color:rgba(255,255,255,0.3);
+    font-family:'DM Mono',monospace; font-size:.5rem; letter-spacing:.03em; text-transform:uppercase; line-height:1.5;
+  }
   .comic-row .info{ flex:1; min-width:0; }
   .comic-row .name{ font-family:'Cormorant Garamond',serif; font-size:1.25rem; line-height:1.25; color:rgba(255,255,255,0.9); margin-bottom:10px; }
   .rarity-rows{ display:flex; flex-direction:column; gap:6px; }
@@ -330,9 +340,10 @@ function renderCollections(){
   collectionsViewEl.innerHTML = keys.map(key => {
     const g = groups[key];
     const distinctComics = new Set(g.items.map(i => cleanTitle(i.name) || i.mint)).size;
+    const coverImage = g.items.find(i => i.image)?.image || '';
     return `
       <button class="coll-card" data-key="${esc(key)}">
-        <img src="${esc(g.items[0].image)}" loading="lazy" onerror="this.style.opacity=0.2">
+        ${coverImage ? `<img src="${esc(coverImage)}" loading="lazy" onerror="this.style.opacity=0.2">` : `<div class="no-preview">No preview available</div>`}
         <div class="body">
           <div class="name">${esc(g.name)}</div>
           <div class="count">${distinctComics} comic${distinctComics !== 1 ? 's' : ''} &middot; ${g.items.length} cop${g.items.length !== 1 ? 'ies' : 'y'} owned</div>
@@ -413,7 +424,7 @@ async function openCollection(key){
 
     return `
       <div class="comic-row">
-        <img src="${esc(entry.representative.image)}" loading="lazy" onerror="this.style.opacity=0.2">
+        ${entry.representative.image ? `<img src="${esc(entry.representative.image)}" loading="lazy" onerror="this.style.opacity=0.2">` : `<div class="no-preview">No preview</div>`}
         <div class="info">
           <div class="name">${esc(title)}</div>
           <div class="rarity-rows">${rarityRows}</div>

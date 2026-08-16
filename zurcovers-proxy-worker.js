@@ -74,14 +74,24 @@ const WALLET_CACHE_TTL_SECONDS = 90; // repeat loads of the same wallet within t
 const WALLET_RATE_LIMIT_PER_HOUR = 30; // per IP, only counted on actual Helius calls (cache hits are free)
 const WALLET_ASSET_MAX_PAGES = 10; // Helius getAssetsByOwner, 1000/page — same cap slideshow-legacy.html used
 
-// Same shape as slideshow-legacy.html's parse() — kept intentionally
-// minimal (no full raw Helius payload forwarded to the client) so the
-// response stays small for wallets holding hundreds of assets.
-function parseHeliusAsset(a) {
-  const meta = (a.content && a.content.metadata) || {};
+// Was an allow-list of "NFT-ish" interface values — any interface type
+// Helius returned that wasn't on that specific list got silently
+// excluded from results, a confirmed real cause of users reporting
+// missing items. Flipped to a deny-list of the only types that are
+// definitely NOT a collectible (fungible tokens, effectively SOL/USDC-
+// like balances) — everything else Helius's DAS API returns for a
+// wallet is kept by default instead of needing to match a fixed list.
+const NON_COLLECTIBLE_INTERFACES = new Set(["FungibleAsset", "FungibleToken"]);
+
+// Bounds how many off-chain-metadata fallback fetches one wallet scan
+// can trigger (see backfillMissingImages below) — protects against a
+// wallet full of unusual/malformed metadata blowing up scan latency.
+const MAX_IMAGE_FALLBACK_FETCHES = 50;
+const IMAGE_FALLBACK_BATCH_SIZE = 8;
+
+function extractImageFromAsset(a) {
   const links = (a.content && a.content.links) || {};
   const files = (a.content && a.content.files) || [];
-  const grouping = (a.grouping || []).find((g) => g.group_key === "collection");
   let image = links.image || links.animation_url || "";
   if (!image) {
     for (const f of files) {
@@ -91,6 +101,17 @@ function parseHeliusAsset(a) {
       if (!image) image = uri;
     }
   }
+  return image;
+}
+
+// Same shape as slideshow-legacy.html's parse() — kept intentionally
+// minimal (no full raw Helius payload forwarded to the client) so the
+// response stays small for wallets holding hundreds of assets. jsonUri
+// is the one exception — kept only long enough for backfillMissingImages
+// to use it, stripped before the response goes out (see fetchWalletAssets).
+function parseHeliusAsset(a) {
+  const meta = (a.content && a.content.metadata) || {};
+  const grouping = (a.grouping || []).find((g) => g.group_key === "collection");
   const collectionName =
     (grouping && grouping.collection_metadata && grouping.collection_metadata.name) ||
     (meta.collection && meta.collection.name) ||
@@ -100,9 +121,38 @@ function parseHeliusAsset(a) {
     name: meta.name || (a.id ? a.id.slice(0, 8) : "Untitled"),
     collectionKey: (grouping && grouping.group_value) || null,
     collectionName,
-    image,
+    image: extractImageFromAsset(a),
     attributes: meta.attributes || [],
+    jsonUri: (a.content && a.content.json_uri) || "",
   };
+}
+
+// A minority of assets (older/nonstandard mints, mostly) don't come back
+// from Helius with a pre-resolved image in content.links/content.files —
+// previously that meant the item was dropped from results entirely, with
+// no indication anything was missing. This fetches each such item's own
+// off-chain metadata JSON directly as a fallback, in small concurrent
+// batches (not fully sequential — bounded latency) rather than one at a
+// time. Items still without an image after this are kept anyway (image:
+// "") rather than dropped — the frontend renders a placeholder for those,
+// which is far better than a collection silently missing entries.
+async function backfillMissingImages(assets) {
+  const needsImage = assets.filter((a) => !a.image && a.jsonUri).slice(0, MAX_IMAGE_FALLBACK_FETCHES);
+  for (let i = 0; i < needsImage.length; i += IMAGE_FALLBACK_BATCH_SIZE) {
+    const batch = needsImage.slice(i, i + IMAGE_FALLBACK_BATCH_SIZE);
+    await Promise.all(
+      batch.map(async (a) => {
+        try {
+          const res = await fetch(a.jsonUri, { headers: { Accept: "application/json" } });
+          if (!res.ok) return;
+          const meta = await res.json();
+          a.image = meta?.image || "";
+        } catch {
+          // leave image empty — frontend placeholder handles this
+        }
+      })
+    );
+  }
 }
 
 async function fetchWalletAssets(address, env) {
@@ -129,18 +179,14 @@ async function fetchWalletAssets(address, env) {
     const items = (json.result && json.result.items) || [];
     for (const a of items) {
       if (seenMints.has(a.id)) continue;
-      const isNftLike =
-        ["V1_NFT", "ProgrammableNFT", "V1_PRINT", "MplCoreAsset", "Custom"].includes(a.interface) ||
-        (a.interface && a.interface.toLowerCase().includes("nft"));
-      if (!isNftLike) continue;
-      const parsed = parseHeliusAsset(a);
-      if (parsed.image) {
-        seenMints.add(a.id);
-        assets.push(parsed);
-      }
+      if (NON_COLLECTIBLE_INTERFACES.has(a.interface)) continue;
+      seenMints.add(a.id);
+      assets.push(parseHeliusAsset(a));
     }
     if (items.length < 1000) break;
   }
+  await backfillMissingImages(assets);
+  for (const a of assets) delete a.jsonUri; // internal-only, not part of the client-facing shape
   return assets;
 }
 

@@ -525,11 +525,21 @@ function show(i) {
   if (!n) return;
   artEl.classList.add('fade');
   setTimeout(function() {
-    artEl.src = n.image;
-    artEl.onload  = function(){ artEl.classList.remove('fade'); };
-    artEl.onerror = function(){ artEl.classList.remove('fade'); };
+    if (n.image) {
+      artEl.style.display = '';
+      artEl.src = n.image;
+      artEl.onload  = function(){ artEl.classList.remove('fade'); };
+      artEl.onerror = function(){ artEl.classList.remove('fade'); };
+    } else {
+      // No resolvable image for this item — hide the <img> rather than
+      // leave a broken/blank frame; meta panel (name/collection/traits)
+      // still shows normally.
+      artEl.removeAttribute('src');
+      artEl.style.display = 'none';
+      artEl.classList.remove('fade');
+    }
   }, 350);
-  bgEl.style.backgroundImage = 'url(' + n.image + ')';
+  bgEl.style.backgroundImage = n.image ? ('url(' + n.image + ')') : 'none';
   mName.textContent = n.name;
   mColl.textContent = n.collection;
 
@@ -550,7 +560,7 @@ function show(i) {
   }).join('');
   mMeLink.href = 'https://magiceden.io/item-details/' + n.mint;
   mCounter.textContent = (i + 1) + ' / ' + nfts.length;
-  if (nfts[i + 1]) { var pre = new Image(); pre.src = nfts[i + 1].image; }
+  if (nfts[i + 1] && nfts[i + 1].image) { var pre = new Image(); pre.src = nfts[i + 1].image; }
 }
 
 function nextNFT() { idx=(idx+1)%nfts.length; show(idx); if(!paused){clearTimeout(timer);schedule();} }
