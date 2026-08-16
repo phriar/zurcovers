@@ -83,6 +83,14 @@
   }
   .entry-panel button:hover{ filter:brightness(1.15); }
 
+  .portfolio-value{
+    position:relative; z-index:1; margin:0 32px 16px; padding:14px 18px;
+    border:1px solid rgba(232,178,77,0.35); border-radius:4px; background:rgba(232,178,77,0.08);
+    font-size:.82rem; line-height:1.8; color:rgba(243,239,230,0.8); display:none;
+  }
+  .portfolio-value b{ color:var(--gold); font-weight:500; }
+  .portfolio-value .note{ display:block; margin-top:2px; font-size:.66rem; color:rgba(243,239,230,0.45); }
+
   .controls-row{ position:relative; z-index:1; padding:0 32px 16px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
   .control-label{ font-size:.6rem; letter-spacing:.1em; text-transform:uppercase; color:rgba(243,239,230,0.4); margin-right:2px; }
   .pill{
@@ -198,6 +206,8 @@
   <button id="load-btn">Browse Shelf</button>
 </div>
 
+<div class="portfolio-value" id="portfolio-value"></div>
+
 <div class="controls-row" id="controls-row" style="display:none">
   <span class="control-label">Sort</span>
   <button class="pill active" id="sort-default" disabled>Recently Added</button>
@@ -231,6 +241,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const statusEl = document.getElementById('status');
 const caveatEl = document.getElementById('caveat');
 const shelfEl = document.getElementById('shelf');
+const portfolioValueEl = document.getElementById('portfolio-value');
 const walletInputEl = document.getElementById('wallet-input');
 const loadBtnEl = document.getElementById('load-btn');
 const controlsRowEl = document.getElementById('controls-row');
@@ -285,6 +296,8 @@ async function fetchFloorPrice(symbol){
 async function loadWallet(address){
   shelfEl.innerHTML = '';
   caveatEl.style.display = 'none';
+  portfolioValueEl.style.display = 'none';
+  portfolioValueEl.innerHTML = '';
   controlsRowEl.style.display = 'none';
   sortMode = 'default';
   sortDefaultBtn.classList.add('active');
@@ -322,6 +335,7 @@ async function loadWallet(address){
   setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Looking up floor prices…`);
   caveatEl.style.display = 'block';
   render(allGroups); // one full paint, price tags start as "…" — resolved prices patch in place below, never a second full re-render
+  updatePortfolioValue();
 
   let done = 0;
   for(const key of groupKeys){
@@ -330,6 +344,7 @@ async function loadWallet(address){
     done++;
     setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Floor prices: ${done}/${groupKeys.length}…`);
     updatePriceForGroup(key, allGroups[key].floor);
+    updatePortfolioValue();
     await sleep(LOOKUP_PACE_MS);
   }
 
@@ -402,6 +417,32 @@ function updatePriceForGroup(key, floor){
     priceEl.textContent = priceTagText;
     priceEl.classList.toggle('unavailable', !floor);
   });
+}
+
+// Estimated portfolio value — sum of each held asset's own collection
+// floor price. Called after every price resolves during the loop above,
+// so it fills in progressively alongside the individual price tags
+// rather than jumping from nothing to a final number.
+function updatePortfolioValue(){
+  let totalValue = 0, pricedCount = 0, unpricedCount = 0, pendingCount = 0;
+  for(const key of Object.keys(allGroups)){
+    const g = allGroups[key];
+    const n = g.items.length;
+    if(g.floor === undefined) pendingCount += n;
+    else if(g.floor === null) unpricedCount += n;
+    else { totalValue += g.floor * n; pricedCount += n; }
+  }
+  if(pricedCount === 0 && pendingCount === 0){
+    portfolioValueEl.style.display = 'none';
+    return;
+  }
+  const notes = [];
+  if(pendingCount > 0) notes.push(`${pendingCount} still pricing…`);
+  if(unpricedCount > 0) notes.push(`${unpricedCount} with no Magic Eden floor data, not included`);
+  portfolioValueEl.style.display = 'block';
+  portfolioValueEl.innerHTML =
+    `Estimated portfolio value: <b>${totalValue.toFixed(3)} SOL</b> — sum of each held asset's collection floor price` +
+    (notes.length ? `<span class="note">${notes.join(' · ')}</span>` : '');
 }
 
 // Flat, price-independent card list — built once right after assets

@@ -84,6 +84,14 @@
   }
   .entry-panel button:hover{ filter:brightness(1.12); }
 
+  .portfolio-value{
+    position:relative; z-index:1; margin:0 32px 16px; padding:14px 18px;
+    border:1px solid rgba(251,191,36,0.3); border-radius:4px; background:rgba(251,191,36,0.06);
+    font-size:.82rem; line-height:1.8; color:rgba(255,255,255,0.75); display:none;
+  }
+  .portfolio-value b{ color:#fbbf24; font-weight:500; }
+  .portfolio-value .note{ display:block; margin-top:2px; font-size:.66rem; color:rgba(255,255,255,0.4); }
+
   .search-row{ position:relative; z-index:1; padding:0 32px 16px; }
   .search-row input{
     width:100%; max-width:420px; background:rgba(0,0,0,0.5); border:1px solid var(--border); color:rgba(255,255,255,0.85);
@@ -207,6 +215,8 @@
   <button id="load-btn">Load Wallet</button>
 </div>
 
+<div class="portfolio-value" id="portfolio-value"></div>
+
 <div class="search-row" id="search-row" style="display:none">
   <input type="text" id="search-input" placeholder="Search your wallet, e.g. &quot;Absolute Batman&quot;" autocomplete="off">
 </div>
@@ -252,6 +262,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const statusEl = document.getElementById('status');
 const caveatEl = document.getElementById('caveat');
 const gridEl = document.getElementById('grid');
+const portfolioValueEl = document.getElementById('portfolio-value');
 const walletInputEl = document.getElementById('wallet-input');
 const loadBtnEl = document.getElementById('load-btn');
 const searchRowEl = document.getElementById('search-row');
@@ -349,6 +360,8 @@ async function fetchListingsRarityFloors(symbol){
 async function loadWallet(address){
   gridEl.innerHTML = '';
   caveatEl.style.display = 'none';
+  portfolioValueEl.style.display = 'none';
+  portfolioValueEl.innerHTML = '';
   searchRowEl.style.display = 'none';
   gapSummaryEl.style.display = 'none';
   controlsRowEl.style.display = 'none';
@@ -392,6 +405,7 @@ async function loadWallet(address){
   caveatEl.style.display = 'block';
   searchRowEl.style.display = 'block';
   renderAll(); // one full paint, prices start as "…" — resolved prices patch in place below via data-group/data-price, never a second full rebuild during loading
+  updatePortfolioValue();
 
   let done = 0;
   for(const key of groupKeys){
@@ -401,6 +415,7 @@ async function loadWallet(address){
     done++;
     setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Floor prices: ${done}/${groupKeys.length}…`);
     updatePriceForGroup(key, allGroups[key].floor);
+    updatePortfolioValue();
     await sleep(LOOKUP_PACE_MS);
   }
 
@@ -502,6 +517,35 @@ function updatePriceForGroup(key, floor){
     priceEl.textContent = floorText;
     priceEl.classList.toggle('unavailable', !floor);
   });
+}
+
+// Estimated portfolio value — sum of each held asset's own COLLECTION
+// floor price (not a per-rarity floor, even in rarity-grouped view: not
+// every collection has rarity floors loaded, and this needs to always
+// be computable from data every wallet load already fetches). Called
+// after every price resolves during the loop above, so it fills in
+// progressively alongside the individual card prices rather than
+// jumping from nothing to a final number.
+function updatePortfolioValue(){
+  let totalValue = 0, pricedCount = 0, unpricedCount = 0, pendingCount = 0;
+  for(const key of Object.keys(allGroups)){
+    const g = allGroups[key];
+    const n = g.items.length;
+    if(g.floor === undefined) pendingCount += n;
+    else if(g.floor === null) unpricedCount += n;
+    else { totalValue += g.floor * n; pricedCount += n; }
+  }
+  if(pricedCount === 0 && pendingCount === 0){
+    portfolioValueEl.style.display = 'none';
+    return;
+  }
+  const notes = [];
+  if(pendingCount > 0) notes.push(`${pendingCount} still pricing…`);
+  if(unpricedCount > 0) notes.push(`${unpricedCount} with no Magic Eden floor data, not included`);
+  portfolioValueEl.style.display = 'block';
+  portfolioValueEl.innerHTML =
+    `Estimated portfolio value: <b>${totalValue.toFixed(3)} SOL</b> — sum of each held asset's collection floor price` +
+    (notes.length ? `<span class="note">${notes.join(' · ')}</span>` : '');
 }
 
 // Flat, price-independent card list — built once right after assets
