@@ -406,6 +406,57 @@ async function loadWallet(address){
   setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Done.`);
   controlsRowEl.style.display = 'flex';
   [groupCollectionBtn, groupRarityBtn, sortDefaultBtn, sortPriceBtn].forEach(b => b.disabled = false);
+
+  // Covers/rarity the Worker couldn't resolve in time for this response
+  // keep resolving in the background there (see zurcovers-proxy-worker.js's
+  // ctx.waitUntil backfill) — silently re-checking a few times picks up
+  // whatever landed, with no reload required.
+  if(json.pendingBackfill > 0){
+    pollForBackfillUpdates(address);
+  }
+}
+
+// Merges freshly-resolved image/attributes into the *existing* item
+// objects in allGroups (matched by mint) rather than rebuilding
+// allGroups from scratch — that would also throw away the floor prices
+// already fetched, forcing a redundant re-run of the paced Magic Eden
+// lookup loop above for no reason.
+function mergeUpdatedAssets(newAssets){
+  let changed = false;
+  const byMint = new Map();
+  for(const key of Object.keys(allGroups)){
+    for(const item of allGroups[key].items) byMint.set(item.mint, item);
+  }
+  for(const a of newAssets){
+    const existing = byMint.get(a.mint);
+    if(!existing) continue;
+    if(a.image && !existing.image){ existing.image = a.image; changed = true; }
+    if(Array.isArray(a.attributes) && a.attributes.length > 0 && (!existing.attributes || existing.attributes.length === 0)){
+      existing.attributes = a.attributes;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+async function pollForBackfillUpdates(address){
+  const delays = [15000, 20000, 25000, 30000]; // ~90s total across 4 checks — roughly matches the Worker's background-backfill budget
+  for(const delay of delays){
+    await sleep(delay);
+    if(walletInputEl.value.trim() !== address) return; // a different wallet's been loaded since — abandon this poll
+    try{
+      const res = await fetch(`${ME_BASE}/wallet-assets?address=${encodeURIComponent(address)}`);
+      if(!res.ok) continue;
+      const freshJson = await res.json();
+      if(mergeUpdatedAssets(freshJson.assets || [])){
+        buildFlatCards();
+        renderAll();
+      }
+      if(!freshJson.pendingBackfill) return; // fully settled, no need to keep checking
+    }catch(e){
+      // silent — this is best-effort background polish, not a user-facing operation
+    }
+  }
 }
 
 // Every copy of the same comic gets its own serial baked into the name

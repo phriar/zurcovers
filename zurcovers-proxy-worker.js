@@ -47,6 +47,20 @@
  * Here the key never leaves the Worker. Requires its own Helius
  * account/key; do not reuse ZurVault's old exposed key even here — treat
  * that one as permanently compromised and get a fresh one.
+ *
+ * A meaningful share of NFTs in a typical wallet come back from Helius
+ * with a missing image and/or empty attributes (confirmed live, not an
+ * edge case — candy.io's own metadata host doesn't always get fully
+ * indexed by Helius). Resolving those requires fetching each item's own
+ * metadata JSON directly, throttled to avoid 429s from candy.io — too
+ * slow to do inline for a wallet with many gaps. So /v2/wallet-assets
+ * responds fast using only what's already resolvable (Helius's own data
+ * plus the persistent per-mint cache, see MINT_METADATA_CACHE_TTL_SECONDS
+ * below), then keeps resolving the rest via ctx.waitUntil() *after* the
+ * response is sent, rewriting the cached response when done. The
+ * response includes a `pendingBackfill` count so the frontend knows
+ * whether to silently repoll a few times (wallet.html/collections.html
+ * both do this) rather than requiring a manual reload to see fuller data.
  */
 
 const ME_ORIGIN = "https://api-mainnet.magiceden.dev";
@@ -102,14 +116,16 @@ const NON_COLLECTIBLE_INTERFACES = new Set(["FungibleAsset", "FungibleToken"]);
 // real documented limit (they don't publish one) — tune based on how
 // many fetch-http-429s show up in practice.
 //
-// At a throttled ~3 req/sec, backfilling this real wallet's full 219
-// candidates would take over a minute — not viable inside one HTTP
-// response. MAX_METADATA_FALLBACK_FETCHES is kept modest (60) so the
-// fallback phase finishes in well under Workers' execution budget; a
-// wallet with more gaps than that will need a couple of reloads to
-// fully settle rather than backfilling 100% in one pass. That's a
-// real, known limitation — not pretending otherwise.
-const MAX_METADATA_FALLBACK_FETCHES = 60;
+// At a throttled ~3 req/sec, backfilling a wallet with 200+ gaps takes
+// over a minute — fine for background work (see liveBackfillMetadata,
+// run via ctx.waitUntil after the response is already sent), but was not
+// viable back when this ran inline in the request/response path. Kept
+// bounded rather than unlimited even in the background, since Workers'
+// background-execution budget isn't infinite either — a wallet with more
+// gaps than this will need its next visit (or a silent frontend repoll)
+// to make further progress, converging over ordinary usage via the
+// persistent per-mint cache rather than in one pass.
+const MAX_METADATA_FALLBACK_FETCHES = 200;
 const CANDY_PERMAWEB_MAX_REQUESTS_PER_SEC = 3;
 const CANDY_PERMAWEB_MAX_RETRIES = 2;
 
@@ -213,11 +229,17 @@ const mintMetaKey = (mint) => `mintmeta:${mint}`;
 // other wallet that happens to hold the same mint later.
 const MINT_METADATA_CACHE_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 
-async function backfillMissingMetadata(assets, env) {
-  const candidates = assets.filter((a) => !a.image || (Array.isArray(a.attributes) && a.attributes.length === 0));
+function metadataCandidates(assets) {
+  return assets.filter((a) => !a.image || (Array.isArray(a.attributes) && a.attributes.length === 0));
+}
 
-  // Cheap pass first: check the persistent per-mint cache for every
-  // candidate before spending any throttled live-fetch budget on it.
+// Fast, cache-only pass — every candidate checked against the persistent
+// per-mint cache, no network calls beyond KV reads. This is the only
+// backfill phase that runs inline in the request/response path; it's
+// what makes a first-ever visit to a wallet still show *some* correct
+// rarity/covers immediately rather than waiting on candy.io at all.
+async function applyCachedMetadata(assets, env) {
+  const candidates = metadataCandidates(assets);
   await Promise.all(
     candidates.map(async (a) => {
       const cached = await env.ZURCOVERS_CACHE.get(mintMetaKey(a.mint));
@@ -227,21 +249,23 @@ async function backfillMissingMetadata(assets, env) {
         if (!a.image) a.image = meta.image || "";
         if (!a.attributes || a.attributes.length === 0) a.attributes = meta.attributes || [];
       } catch {
-        // corrupt cache entry — fall through to a live fetch below
+        // corrupt cache entry — leave as a live-backfill candidate
       }
     })
   );
+}
 
-  // Only mints the persistent cache didn't already resolve compete for
-  // this request's capped, throttled live-fetch budget. Same rotation
-  // gap as before still applies within *this* budget — a wallet whose
-  // gaps exceed the cap on every single visit won't fully converge — but
-  // every mint that DOES get resolved here now persists for every future
-  // request (this wallet's next reload, or any other wallet holding the
-  // same mint), so real-world coverage compounds over ordinary usage
-  // instead of resetting to zero every 90 seconds.
-  const needsFetch = candidates
-    .filter((a) => (!a.image || (Array.isArray(a.attributes) && a.attributes.length === 0)) && a.jsonUri)
+// The slow, throttled phase — fetches each still-unresolved item's own
+// metadata JSON from candy.io. Deliberately NOT awaited in the request
+// path (see handleWalletAssets) — this runs via ctx.waitUntil() after
+// the response has already been sent, so a visitor never waits on it.
+// Successful resolutions get written to the long-lived per-mint cache
+// AND back into the wallet-level response cache, so the *next* fetch of
+// this wallet (a silent frontend repoll, or the visitor reloading later)
+// picks up the improvement without needing another Helius call.
+async function liveBackfillMetadata(assets, env) {
+  const needsFetch = metadataCandidates(assets)
+    .filter((a) => a.jsonUri)
     .slice(0, MAX_METADATA_FALLBACK_FETCHES);
 
   await Promise.all(
@@ -293,8 +317,7 @@ async function fetchWalletAssets(address, env) {
     }
     if (items.length < 1000) break;
   }
-  await backfillMissingMetadata(assets, env);
-  for (const a of assets) delete a.jsonUri; // internal-only, not part of the client-facing shape
+  await applyCachedMetadata(assets, env);
   return assets;
 }
 
@@ -312,7 +335,46 @@ async function checkAndBumpRateLimit(ip, env) {
   return true;
 }
 
-async function handleWalletAssets(request, env, corsHeaders) {
+// Client-facing copy — strips jsonUri (internal-only, needed by the
+// background backfill but not part of the response shape) without
+// touching the original objects, since the background task (if one was
+// kicked off) still needs jsonUri on those same objects after this
+// response has already been built.
+function toClientAssets(assets) {
+  return assets.map(({ jsonUri, ...rest }) => rest);
+}
+
+function buildWalletBody(address, assets) {
+  const pendingBackfill = metadataCandidates(assets).filter((a) => a.jsonUri).length;
+  return JSON.stringify({
+    wallet: address,
+    count: assets.length,
+    assets: toClientAssets(assets),
+    fetchedAt: Date.now(),
+    pendingBackfill, // frontend uses this to decide whether a silent repoll is worth trying
+  });
+}
+
+// Runs after the response has already been sent (see ctx.waitUntil below)
+// — does the slow, throttled candy.io phase, then overwrites the cached
+// response for this address so the *next* fetch (a frontend repoll, or
+// the visitor reloading a bit later) picks up the improvement without
+// another Helius round-trip. Errors here are swallowed deliberately —
+// this is best-effort background work with no one waiting on it, and it
+// must never surface as a failure the visitor sees.
+async function runBackgroundBackfill(address, assets, env) {
+  try {
+    await liveBackfillMetadata(assets, env);
+    const cacheKey = `walletassets:${address}`;
+    const body = buildWalletBody(address, assets);
+    await env.ZURCOVERS_CACHE.put(cacheKey, body, { expirationTtl: WALLET_CACHE_TTL_SECONDS });
+  } catch {
+    // best-effort — a failed background pass just means the next fresh
+    // request tries again from scratch, same as before this existed
+  }
+}
+
+async function handleWalletAssets(request, env, ctx, corsHeaders) {
   const url = new URL(request.url);
   const address = (url.searchParams.get("address") || "").trim();
   if (!SOL_ADDRESS_RE.test(address)) {
@@ -341,9 +403,18 @@ async function handleWalletAssets(request, env, corsHeaders) {
   }
 
   try {
+    // Only the fast, cache-only metadata pass happens before responding —
+    // see fetchWalletAssets/applyCachedMetadata. Whatever's still missing
+    // gets resolved in the background below, after the visitor already
+    // has a fast response in hand.
     const assets = await fetchWalletAssets(address, env);
-    const body = JSON.stringify({ wallet: address, count: assets.length, assets, fetchedAt: Date.now() });
+    const body = buildWalletBody(address, assets);
     await env.ZURCOVERS_CACHE.put(cacheKey, body, { expirationTtl: WALLET_CACHE_TTL_SECONDS });
+
+    if (metadataCandidates(assets).some((a) => a.jsonUri)) {
+      ctx.waitUntil(runBackgroundBackfill(address, assets, env));
+    }
+
     return new Response(body, {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json", "X-Zurcovers-Wallet-Cache": "MISS" },
@@ -374,7 +445,7 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/v2/wallet-assets") {
-      return handleWalletAssets(request, env, corsHeaders);
+      return handleWalletAssets(request, env, ctx, corsHeaders);
     }
 
     // Outbound-to-Magic-Eden click tracking — same shape as ZurVault's

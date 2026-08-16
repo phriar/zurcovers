@@ -216,6 +216,7 @@ const walletInputEl = document.getElementById('wallet-input');
 const loadBtnEl = document.getElementById('load-btn');
 
 let groups = {}; // collectionKey -> { name, items }
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 function setStatus(msg, isErr){
   statusEl.innerHTML = (isErr ? '' : '<span class="dot"></span>') + msg;
@@ -333,6 +334,61 @@ async function loadWallet(address){
   caveatEl.style.display = 'block';
   renderCollections();
   setStatus(`${assets.length} NFTs across ${Object.keys(groups).length} collection(s).`);
+
+  // Covers/rarity the Worker couldn't resolve in time for this response
+  // keep resolving in the background there (see zurcovers-proxy-worker.js's
+  // ctx.waitUntil backfill) — silently re-checking a few times picks up
+  // whatever landed, with no reload required.
+  if(json.pendingBackfill > 0){
+    pollForBackfillUpdates(address);
+  }
+}
+
+// Merges freshly-resolved image/attributes into the *existing* item
+// objects in groups (matched by mint) rather than rebuilding groups from
+// scratch — that would also throw away whatever collection/rarity view
+// the visitor currently has open.
+function mergeUpdatedAssets(newAssets){
+  let changed = false;
+  const byMint = new Map();
+  for(const key of Object.keys(groups)){
+    for(const item of groups[key].items) byMint.set(item.mint, item);
+  }
+  for(const a of newAssets){
+    const existing = byMint.get(a.mint);
+    if(!existing) continue;
+    if(a.image && !existing.image){ existing.image = a.image; changed = true; }
+    if(Array.isArray(a.attributes) && a.attributes.length > 0 && (!existing.attributes || existing.attributes.length === 0)){
+      existing.attributes = a.attributes;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+async function pollForBackfillUpdates(address){
+  const delays = [15000, 20000, 25000, 30000]; // ~90s total across 4 checks — roughly matches the Worker's background-backfill budget
+  for(const delay of delays){
+    await sleep(delay);
+    if(walletInputEl.value.trim() !== address) return; // a different wallet's been loaded since — abandon this poll
+    try{
+      const res = await fetch(`${ME_BASE}/wallet-assets?address=${encodeURIComponent(address)}`);
+      if(!res.ok) continue;
+      const freshJson = await res.json();
+      if(mergeUpdatedAssets(freshJson.assets || [])){
+        // Re-render whichever view is currently visible, without
+        // re-fetching anything from Magic Eden.
+        if(detailViewEl.style.display !== 'none' && currentDetailKey){
+          renderComicsList(currentDetailKey, currentSymbol);
+        } else {
+          renderCollections();
+        }
+      }
+      if(!freshJson.pendingBackfill) return; // fully settled, no need to keep checking
+    }catch(e){
+      // silent — this is best-effort background polish, not a user-facing operation
+    }
+  }
 }
 
 function renderCollections(){
@@ -362,6 +418,14 @@ function rarityClass(label){
   return label ? 'rarity-' + label.toLowerCase() : 'rarity-none';
 }
 
+// Set whenever a collection's detail view is open, so a background
+// repoll (see pollForBackfillUpdates below) can re-render it from
+// already-fetched pricing data without re-hitting Magic Eden.
+let currentDetailKey = null;
+let currentSymbol = null;
+let currentRarityFloors = {};
+let currentOverallFloor = null;
+
 async function openCollection(key){
   const g = groups[key];
   if(!g) return;
@@ -382,6 +446,23 @@ async function openCollection(key){
       fetchOverallFloor(symbol),
     ]);
   }
+
+  currentDetailKey = key;
+  currentSymbol = symbol;
+  currentRarityFloors = rarityFloors;
+  currentOverallFloor = overallFloor;
+  renderComicsList(key, symbol);
+}
+
+// Pure render — reads groups[key] plus the pricing data openCollection()
+// already fetched (currentRarityFloors/currentOverallFloor). Callable
+// again after a background repoll updates groups[key].items in place,
+// without re-fetching anything from Magic Eden.
+function renderComicsList(key, symbol){
+  const g = groups[key];
+  if(!g) return;
+  const rarityFloors = currentRarityFloors;
+  const overallFloor = currentOverallFloor;
 
   // Group owned items in this collection by comic title, and within
   // each title, by rarity tier (a title can in principle have owned
