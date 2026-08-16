@@ -1,10 +1,17 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#8f6fe8"/>
-      <stop offset="100%" stop-color="#4de8ff"/>
+    <radialGradient id="doorFace" cx="35%" cy="30%" r="75%">
+      <stop offset="0%" stop-color="#7a4fdb"/>
+      <stop offset="100%" stop-color="#3a1f7a"/>
+    </radialGradient>
+    <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4de8ff"/>
+      <stop offset="50%" stop-color="#8f6fe8"/>
+      <stop offset="100%" stop-color="#6b2fd6"/>
     </linearGradient>
   </defs>
-  <rect width="100" height="100" rx="20" fill="#0a0a0a"/>
-  <path transform="translate(19,19) scale(2.5)" d="M4,4 H20 V6.5 L8,17.5 H20 V20 H4 V17.5 L16,6.5 H4 Z" fill="url(#g)"/>
+  <rect width="512" height="512" fill="#0a0a0a"/>
+  <circle cx="256" cy="256" r="230" fill="none" stroke="url(#ringGrad)" stroke-width="44"/>
+  <circle cx="256" cy="256" r="196" fill="url(#doorFace)"/>
+  <path d="M 146 158 L 366 158 L 366 208 L 224 354 L 370 354 L 370 404 L 142 404 L 142 354 L 284 208 L 146 208 Z" fill="#ffffff"/>
 </svg>
