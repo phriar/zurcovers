@@ -201,10 +201,49 @@ async function fetchCandyMetadataWithRetry(jsonUri) {
   return null;
 }
 
-async function backfillMissingMetadata(assets) {
-  const needsFetch = assets
+const mintMetaKey = (mint) => `mintmeta:${mint}`;
+// NFT off-chain metadata is effectively immutable once minted — safe to
+// cache far longer than the 90s wallet-level cache. Confirmed live this
+// matters a lot: without it, every fresh wallet-assets computation (every
+// 90s, per wallet) re-derives everything from scratch and discards
+// whatever it resolved, so repeated visits/reloads never actually
+// accumulate coverage — the same capped subset gets attempted every time
+// with zero memory of past successes. Keying by mint (not by wallet)
+// also means a mint resolved while scanning one wallet benefits every
+// other wallet that happens to hold the same mint later.
+const MINT_METADATA_CACHE_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
+
+async function backfillMissingMetadata(assets, env) {
+  const candidates = assets.filter((a) => !a.image || (Array.isArray(a.attributes) && a.attributes.length === 0));
+
+  // Cheap pass first: check the persistent per-mint cache for every
+  // candidate before spending any throttled live-fetch budget on it.
+  await Promise.all(
+    candidates.map(async (a) => {
+      const cached = await env.ZURCOVERS_CACHE.get(mintMetaKey(a.mint));
+      if (!cached) return;
+      try {
+        const meta = JSON.parse(cached);
+        if (!a.image) a.image = meta.image || "";
+        if (!a.attributes || a.attributes.length === 0) a.attributes = meta.attributes || [];
+      } catch {
+        // corrupt cache entry — fall through to a live fetch below
+      }
+    })
+  );
+
+  // Only mints the persistent cache didn't already resolve compete for
+  // this request's capped, throttled live-fetch budget. Same rotation
+  // gap as before still applies within *this* budget — a wallet whose
+  // gaps exceed the cap on every single visit won't fully converge — but
+  // every mint that DOES get resolved here now persists for every future
+  // request (this wallet's next reload, or any other wallet holding the
+  // same mint), so real-world coverage compounds over ordinary usage
+  // instead of resetting to zero every 90 seconds.
+  const needsFetch = candidates
     .filter((a) => (!a.image || (Array.isArray(a.attributes) && a.attributes.length === 0)) && a.jsonUri)
     .slice(0, MAX_METADATA_FALLBACK_FETCHES);
+
   await Promise.all(
     needsFetch.map(async (a) => {
       try {
@@ -212,6 +251,11 @@ async function backfillMissingMetadata(assets) {
         if (!meta) return;
         if (!a.image) a.image = meta.image || "";
         if (!a.attributes || a.attributes.length === 0) a.attributes = Array.isArray(meta.attributes) ? meta.attributes : [];
+        await env.ZURCOVERS_CACHE.put(
+          mintMetaKey(a.mint),
+          JSON.stringify({ image: a.image, attributes: a.attributes }),
+          { expirationTtl: MINT_METADATA_CACHE_TTL_SECONDS }
+        );
       } catch {
         // leave as-is — frontend already handles missing image; missing attributes just means no rarity badge
       }
@@ -249,7 +293,7 @@ async function fetchWalletAssets(address, env) {
     }
     if (items.length < 1000) break;
   }
-  await backfillMissingMetadata(assets);
+  await backfillMissingMetadata(assets, env);
   for (const a of assets) delete a.jsonUri; // internal-only, not part of the client-facing shape
   return assets;
 }
