@@ -88,18 +88,45 @@ const NON_COLLECTIBLE_INTERFACES = new Set(["FungibleAsset", "FungibleToken"]);
 // wallet full of unusual/malformed metadata blowing up scan latency.
 // Confirmed live against a real 669-asset wallet that this gap is
 // common, not an edge case: 219 of 669 assets (~33%) came back from
-// Helius with empty image AND empty attributes. The first cap tried
-// here (150) undershot that real number — 69 assets never got attempted
-// and stayed showing "No rarity data"/no preview even after the fix
-// deployed, purely because they fell past the cap in whatever order the
-// assets array happened to be in. Raised to 300 (with headroom above
-// the 219 actually observed) at a slightly larger batch size to keep
-// total round-trip count from growing much. Still bounded, not
-// unlimited — if very large wallets start hitting Workers execution
-// limits, that's the number to reconsider, ideally alongside making
-// this backfill lazy/on-demand instead of eager on every cache miss.
-const MAX_METADATA_FALLBACK_FETCHES = 300;
-const METADATA_FALLBACK_BATCH_SIZE = 15;
+// Helius with empty image AND empty attributes.
+//
+// The real bottleneck turned out to be neither the cap nor a subrequest
+// limit — it was candy.io's own metadata host (permaweb.candy.io)
+// rate-limiting a burst of 15 concurrent requests: confirmed live, 194
+// of 219 candidates came back HTTP 429. Same class of problem this file
+// already learned to handle for Magic Eden (see the sibling project's
+// throttleMagicEden() this pattern mirrors) — pacing actual request
+// *rate*, not just bounding how many are conceptually "in flight" at
+// once, is what avoids tripping it. CANDY_PERMAWEB_MAX_REQUESTS_PER_SEC
+// below is a conservative starting point, unconfirmed against candy.io's
+// real documented limit (they don't publish one) — tune based on how
+// many fetch-http-429s show up in practice.
+//
+// At a throttled ~3 req/sec, backfilling this real wallet's full 219
+// candidates would take over a minute — not viable inside one HTTP
+// response. MAX_METADATA_FALLBACK_FETCHES is kept modest (60) so the
+// fallback phase finishes in well under Workers' execution budget; a
+// wallet with more gaps than that will need a couple of reloads to
+// fully settle rather than backfilling 100% in one pass. That's a
+// real, known limitation — not pretending otherwise.
+const MAX_METADATA_FALLBACK_FETCHES = 60;
+const CANDY_PERMAWEB_MAX_REQUESTS_PER_SEC = 3;
+const CANDY_PERMAWEB_MAX_RETRIES = 2;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+let candyPermawebRequestTimestamps = [];
+async function throttleCandyPermaweb() {
+  while (true) {
+    const now = Date.now();
+    candyPermawebRequestTimestamps = candyPermawebRequestTimestamps.filter((t) => now - t < 1000);
+    if (candyPermawebRequestTimestamps.length < CANDY_PERMAWEB_MAX_REQUESTS_PER_SEC) {
+      candyPermawebRequestTimestamps.push(now);
+      return;
+    }
+    await sleep(1000 - (now - candyPermawebRequestTimestamps[0]) + 10);
+  }
+}
 
 function extractImageFromAsset(a) {
   const links = (a.content && a.content.links) || {};
@@ -148,47 +175,48 @@ function parseHeliusAsset(a) {
 // attributes array meant the item silently lost its rarity (grouped
 // under "No rarity data" even when the collection does use rarity
 // tiers, or worse, undercounted collections/comics — see the
-// "Showcase #4" investigation this fix came out of). This fetches each
-// such item's own metadata JSON directly as a fallback, in small
-// concurrent batches (not fully sequential — bounded latency) rather
-// than one at a time, and fills in whichever of image/attributes was
-// actually missing. Items still missing either after this are kept
+// "Showcase #4" investigation this fix came out of).
+//
+// Fetches each such item's own metadata JSON directly as a fallback,
+// throttled through throttleCandyPermaweb() rather than fired in
+// concurrent batches — confirmed live that candy.io's metadata host
+// 429s hard under a burst of 15 concurrent requests (194 of 219 in one
+// real test). Short bounded retry on 429 specifically, since a
+// transient rate-limit hit shouldn't permanently leave an item without
+// rarity data. Items still missing either field after this are kept
 // anyway (image: "", attributes: []) rather than dropped — the frontend
 // renders a placeholder for a missing image, and simply shows no rarity
 // badge for missing attributes.
+async function fetchCandyMetadataWithRetry(jsonUri) {
+  for (let attempt = 0; attempt <= CANDY_PERMAWEB_MAX_RETRIES; attempt++) {
+    await throttleCandyPermaweb();
+    const res = await fetch(jsonUri, { headers: { Accept: "application/json" } });
+    if (res.ok) return res.json();
+    if (res.status === 429 && attempt < CANDY_PERMAWEB_MAX_RETRIES) {
+      await sleep(500 * Math.pow(2, attempt));
+      continue;
+    }
+    return null;
+  }
+  return null;
+}
+
 async function backfillMissingMetadata(assets) {
-  // TEMPORARY DIAGNOSTIC — the cap increase (150->300) barely moved the
-  // still-missing count on a real wallet, which rules out the cap as the
-  // bottleneck. Tagging every candidate with _debugBackfill so the actual
-  // failure mode (no json_uri at all vs. a failed fetch vs. something
-  // else) is visible in the response instead of guessed at blind.
-  // Remove _debugBackfill (and the jsonUri-stripping opt-out below) once
-  // diagnosed.
-  const candidates = assets.filter((a) => !a.image || (Array.isArray(a.attributes) && a.attributes.length === 0));
-  for (const a of candidates) {
-    a._debugBackfill = a.jsonUri ? "pending" : "no-json-uri";
-  }
-  const needsFetch = candidates.filter((a) => a.jsonUri).slice(0, MAX_METADATA_FALLBACK_FETCHES);
-  for (const a of candidates) {
-    if (a._debugBackfill === "pending" && !needsFetch.includes(a)) a._debugBackfill = "over-cap";
-  }
-  for (let i = 0; i < needsFetch.length; i += METADATA_FALLBACK_BATCH_SIZE) {
-    const batch = needsFetch.slice(i, i + METADATA_FALLBACK_BATCH_SIZE);
-    await Promise.all(
-      batch.map(async (a) => {
-        try {
-          const res = await fetch(a.jsonUri, { headers: { Accept: "application/json" } });
-          if (!res.ok) { a._debugBackfill = `fetch-http-${res.status}`; return; }
-          const meta = await res.json();
-          if (!a.image) a.image = meta?.image || "";
-          if (!a.attributes || a.attributes.length === 0) a.attributes = Array.isArray(meta?.attributes) ? meta.attributes : [];
-          a._debugBackfill = "ok";
-        } catch (err) {
-          a._debugBackfill = `fetch-error:${String(err && err.message || err).slice(0, 60)}`;
-        }
-      })
-    );
-  }
+  const needsFetch = assets
+    .filter((a) => (!a.image || (Array.isArray(a.attributes) && a.attributes.length === 0)) && a.jsonUri)
+    .slice(0, MAX_METADATA_FALLBACK_FETCHES);
+  await Promise.all(
+    needsFetch.map(async (a) => {
+      try {
+        const meta = await fetchCandyMetadataWithRetry(a.jsonUri);
+        if (!meta) return;
+        if (!a.image) a.image = meta.image || "";
+        if (!a.attributes || a.attributes.length === 0) a.attributes = Array.isArray(meta.attributes) ? meta.attributes : [];
+      } catch {
+        // leave as-is — frontend already handles missing image; missing attributes just means no rarity badge
+      }
+    })
+  );
 }
 
 async function fetchWalletAssets(address, env) {
@@ -222,11 +250,7 @@ async function fetchWalletAssets(address, env) {
     if (items.length < 1000) break;
   }
   await backfillMissingMetadata(assets);
-  // TEMPORARY: jsonUri normally gets stripped here (internal-only, not
-  // part of the client-facing shape) — left in for now alongside
-  // _debugBackfill above so the actual failure mode is visible in the
-  // response. Restore `for (const a of assets) delete a.jsonUri;` once
-  // diagnosed.
+  for (const a of assets) delete a.jsonUri; // internal-only, not part of the client-facing shape
   return assets;
 }
 
