@@ -83,6 +83,17 @@
   }
   .entry-panel button:hover{ filter:brightness(1.15); }
 
+  .controls-row{ position:relative; z-index:1; padding:0 32px 16px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .control-label{ font-size:.6rem; letter-spacing:.1em; text-transform:uppercase; color:rgba(243,239,230,0.4); margin-right:2px; }
+  .pill{
+    font-family:'DM Mono',monospace; font-size:.6rem; letter-spacing:.08em; text-transform:uppercase;
+    color:rgba(243,239,230,0.5); padding:6px 12px; border:1px solid rgba(243,239,230,0.15); border-radius:20px;
+    cursor:pointer; transition:all .15s; background:transparent;
+  }
+  .pill:hover:not(:disabled){ color:rgba(243,239,230,0.8); border-color:rgba(232,178,77,0.4); }
+  .pill.active{ color:#fff; background:var(--tag-red); border-color:transparent; }
+  .pill:disabled{ opacity:0.35; cursor:default; }
+
   #status{ position:relative; z-index:1; padding:16px 32px; font-size:.62rem; letter-spacing:.08em; color:rgba(243,239,230,0.5); text-transform:uppercase; }
   #status.err{ color:#e8917a; }
   #status .dot{ display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--cyan); margin-right:8px; }
@@ -180,6 +191,12 @@
   <button id="load-btn">Browse Shelf</button>
 </div>
 
+<div class="controls-row" id="controls-row" style="display:none">
+  <span class="control-label">Sort</span>
+  <button class="pill active" id="sort-default" disabled>Recently Added</button>
+  <button class="pill" id="sort-price" disabled>Highest Floor First</button>
+</div>
+
 <div id="status"></div>
 <div class="caveat" id="caveat" style="display:none">
   Small/unfamiliar "collection" entries in a wallet are often unsolicited airdrop NFTs, not anything you acquired — Magic Eden simply not recognizing one is common and not itself a red flag. Never interact with anything claiming you need to "claim" a reward.
@@ -209,6 +226,13 @@ const caveatEl = document.getElementById('caveat');
 const shelfEl = document.getElementById('shelf');
 const walletInputEl = document.getElementById('wallet-input');
 const loadBtnEl = document.getElementById('load-btn');
+const controlsRowEl = document.getElementById('controls-row');
+const sortDefaultBtn = document.getElementById('sort-default');
+const sortPriceBtn = document.getElementById('sort-price');
+
+let allGroups = {};
+let flatCards = [];
+let sortMode = 'default'; // 'default' | 'price-desc'
 
 function setStatus(msg, isErr){
   statusEl.innerHTML = (isErr ? '' : '<span class="dot"></span>') + msg;
@@ -254,6 +278,10 @@ async function fetchFloorPrice(symbol){
 async function loadWallet(address){
   shelfEl.innerHTML = '';
   caveatEl.style.display = 'none';
+  controlsRowEl.style.display = 'none';
+  sortMode = 'default';
+  sortDefaultBtn.classList.add('active');
+  sortPriceBtn.classList.remove('active');
   setStatus('Fetching wallet assets…');
 
   let json;
@@ -275,29 +303,33 @@ async function loadWallet(address){
     return;
   }
 
-  const groups = {};
+  allGroups = {};
   for(const a of assets){
     const key = a.collectionKey || a.collectionName || a.mint;
-    if(!groups[key]) groups[key] = { name: a.collectionName || 'Unknown Collection', items: [], sampleMint: a.mint, floor: undefined };
-    groups[key].items.push(a);
+    if(!allGroups[key]) allGroups[key] = { name: a.collectionName || 'Unknown Collection', items: [], sampleMint: a.mint, floor: undefined };
+    allGroups[key].items.push(a);
   }
-  const groupKeys = Object.keys(groups);
+  const groupKeys = Object.keys(allGroups);
+  buildFlatCards();
 
   setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Looking up floor prices…`);
   caveatEl.style.display = 'block';
-  render(groups); // one full paint, price tags start as "…" — resolved prices patch in place below, never a second full re-render
+  render(allGroups); // one full paint, price tags start as "…" — resolved prices patch in place below, never a second full re-render
 
   let done = 0;
   for(const key of groupKeys){
-    const symbol = await resolveMESymbol(groups[key].sampleMint);
-    groups[key].floor = symbol ? await fetchFloorPrice(symbol) : null;
+    const symbol = await resolveMESymbol(allGroups[key].sampleMint);
+    allGroups[key].floor = symbol ? await fetchFloorPrice(symbol) : null;
     done++;
     setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Floor prices: ${done}/${groupKeys.length}…`);
-    updatePriceForGroup(key, groups[key].floor);
+    updatePriceForGroup(key, allGroups[key].floor);
     await sleep(LOOKUP_PACE_MS);
   }
 
   setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Done.`);
+  controlsRowEl.style.display = 'flex';
+  sortDefaultBtn.disabled = false;
+  sortPriceBtn.disabled = false;
 }
 
 // Same grouping as wallet.html — strips the trailing "(123/456)" edition
@@ -364,6 +396,62 @@ function updatePriceForGroup(key, floor){
     priceEl.classList.toggle('unavailable', !floor);
   });
 }
+
+// Flat, price-independent card list — built once right after assets
+// load, since which title/count a card represents never changes, only
+// its price display does.
+function buildFlatCards(){
+  flatCards = [];
+  for(const key of Object.keys(allGroups)){
+    const g = allGroups[key];
+    for(const { representative: item, count } of groupByName(g.items)){
+      flatCards.push({ key, collName: g.name, title: cleanTitle(item.name) || item.name, image: item.image, mint: item.mint, count });
+    }
+  }
+}
+
+// Full rebuild, optionally sorted by floor price highest-first — only
+// ever called from an explicit user click on the Sort control (after
+// the initial load has already finished), never from the progressive-
+// loading loop above, so this doesn't reintroduce the flicker
+// render()/updatePriceForGroup() were built to avoid.
+function renderAll(){
+  const cards = flatCards.map(c => ({ ...c, floor: allGroups[c.key].floor }));
+  if(sortMode === 'price-desc'){
+    cards.sort((a, b) => (b.floor ?? -Infinity) - (a.floor ?? -Infinity));
+  }
+
+  shelfEl.innerHTML = cards.map(c => {
+    const pdpUrl = `https://magiceden.io/item-details/${c.mint}`;
+    const tilt = hashTilt(c.mint) + 'deg';
+    const priceTagText = c.floor === null || c.floor === undefined ? (c.floor === null ? 'no ME data' : '…') : `${c.floor.toFixed(3)} SOL`;
+    return `
+      <a class="comic" style="--tilt:${tilt}" href="${esc(pdpUrl)}" target="_blank" rel="noopener">
+        <img class="cover" src="${esc(c.image)}" loading="lazy" onerror="this.style.opacity=0.2">
+        ${c.count > 1 ? `<div class="qty-sticker">&times;${c.count}</div>` : ''}
+        <div class="price-tag ${c.floor ? '' : 'unavailable'}">${priceTagText}</div>
+        <div class="caption">
+          <div class="sub">${esc(c.collName)}</div>
+          <div class="name">${esc(c.title)}</div>
+          <div class="me-tag">Magic Eden &#8599;</div>
+        </div>
+      </a>
+    `;
+  }).join('');
+}
+
+sortDefaultBtn.addEventListener('click', () => {
+  sortMode = 'default';
+  sortDefaultBtn.classList.add('active');
+  sortPriceBtn.classList.remove('active');
+  renderAll();
+});
+sortPriceBtn.addEventListener('click', () => {
+  sortMode = 'price-desc';
+  sortPriceBtn.classList.add('active');
+  sortDefaultBtn.classList.remove('active');
+  renderAll();
+});
 
 function go(){
   const addr = walletInputEl.value.trim();

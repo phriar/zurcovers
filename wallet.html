@@ -84,6 +84,37 @@
   }
   .entry-panel button:hover{ filter:brightness(1.12); }
 
+  .controls-row{
+    position:relative; z-index:1; padding:0 32px 16px; display:flex; gap:18px; flex-wrap:wrap;
+  }
+  .control-group{ display:flex; align-items:center; gap:6px; }
+  .control-label{ font-size:.6rem; letter-spacing:.1em; text-transform:uppercase; color:rgba(255,255,255,0.35); margin-right:2px; }
+  .pill{
+    font-family:'DM Mono',monospace; font-size:.6rem; letter-spacing:.08em; text-transform:uppercase;
+    color:rgba(255,255,255,0.4); padding:6px 12px; border:1px solid var(--border); border-radius:20px;
+    cursor:pointer; transition:all .15s; background:transparent;
+  }
+  .pill:hover:not(:disabled){ color:rgba(255,255,255,0.7); border-color:rgba(143,111,232,0.3); }
+  .pill.active{ color:#fff; background:linear-gradient(135deg, var(--deep), var(--gold)); border-color:transparent; }
+  .pill:disabled{ opacity:0.35; cursor:default; }
+
+  .section-header{
+    grid-column:1/-1;
+    font-family:'Cormorant Garamond',serif; font-weight:400; font-size:1.3rem; color:rgba(255,255,255,0.85);
+    padding:22px 4px 10px; border-bottom:1px solid var(--border); margin-bottom:2px;
+  }
+  .section-header:first-child{ padding-top:4px; }
+
+  .rarity-badge{
+    display:inline-block; font-family:'DM Mono',monospace; font-size:.56rem; letter-spacing:.08em; text-transform:uppercase;
+    padding:2px 8px; border-radius:10px; border:1px solid; margin-top:4px;
+  }
+  .rarity-common     { color:#c2c6cc; border-color:rgba(194,198,204,0.4); background:rgba(194,198,204,0.08); }
+  .rarity-uncommon   { color:#4ade80; border-color:rgba(74,222,128,0.4); background:rgba(74,222,128,0.08); }
+  .rarity-rare       { color:var(--cyan); border-color:rgba(77,232,255,0.4); background:rgba(77,232,255,0.08); }
+  .rarity-epic       { color:var(--gold); border-color:rgba(143,111,232,0.5); background:rgba(143,111,232,0.1); }
+  .rarity-legendary  { color:#fbbf24; border-color:rgba(251,191,36,0.5); background:rgba(251,191,36,0.1); }
+
   #status{ position:relative; z-index:1; padding:16px 32px; font-size:.62rem; letter-spacing:.08em; color:rgba(255,255,255,0.35); text-transform:uppercase; }
   #status.err{ color:#e07a5f; }
   #status .dot{ display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--cyan); margin-right:8px; }
@@ -155,6 +186,19 @@
   <button id="load-btn">Load Wallet</button>
 </div>
 
+<div class="controls-row" id="controls-row" style="display:none">
+  <div class="control-group">
+    <span class="control-label">Group by</span>
+    <button class="pill active" id="group-collection" disabled>Collection</button>
+    <button class="pill" id="group-rarity" disabled>Rarity</button>
+  </div>
+  <div class="control-group">
+    <span class="control-label">Sort</span>
+    <button class="pill active" id="sort-default" disabled>Recently Added</button>
+    <button class="pill" id="sort-price" disabled>Highest Floor First</button>
+  </div>
+</div>
+
 <div id="status"></div>
 <div class="caveat" id="caveat" style="display:none">
   Small/unfamiliar "collection" entries in a wallet are often unsolicited airdrop NFTs, not anything you acquired — Magic Eden simply not recognizing one is common and not itself a red flag. Never interact with anything claiming you need to "claim" a reward.
@@ -184,6 +228,18 @@ const caveatEl = document.getElementById('caveat');
 const gridEl = document.getElementById('grid');
 const walletInputEl = document.getElementById('wallet-input');
 const loadBtnEl = document.getElementById('load-btn');
+const controlsRowEl = document.getElementById('controls-row');
+const groupCollectionBtn = document.getElementById('group-collection');
+const groupRarityBtn = document.getElementById('group-rarity');
+const sortDefaultBtn = document.getElementById('sort-default');
+const sortPriceBtn = document.getElementById('sort-price');
+
+// allGroups/flatCards live across the load + control-toggle lifecycle of
+// one wallet, rebuilt fresh at the top of every loadWallet() call.
+let allGroups = {};
+let flatCards = [];
+let groupMode = 'collection'; // 'collection' | 'rarity'
+let sortMode = 'default';     // 'default' | 'price-desc'
 
 function setStatus(msg, isErr){
   statusEl.innerHTML = (isErr ? '' : '<span class="dot"></span>') + msg;
@@ -191,6 +247,22 @@ function setStatus(msg, isErr){
 }
 
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+
+// Same rarity-string normalization as collections.html/the Worker —
+// "(40.400)" weight suffixes stripped, CORE/BASE/STANDARD aliased to
+// Common.
+const RARITY_ALIASES = { common:'common', core:'common', base:'common', standard:'common', uncommon:'uncommon', rare:'rare', epic:'epic', legendary:'legendary' };
+const RARITY_LABELS = { common:'Common', uncommon:'Uncommon', rare:'Rare', epic:'Epic', legendary:'Legendary' };
+function normalizeRarity(attributes){
+  const attr = (attributes || []).find(a => /^rarity$/i.test(a?.trait_type || ''));
+  if(!attr) return null;
+  const raw = String(attr.value || '').trim();
+  const match = /^(.*?)\s*\(([\d.]+)\)\s*$/.exec(raw);
+  const cleaned = (match ? match[1] : raw).trim().toLowerCase();
+  const key = RARITY_ALIASES[cleaned];
+  return key ? RARITY_LABELS[key] : null;
+}
+const RARITY_SORT_ORDER = ['Legendary', 'Epic', 'Rare', 'Uncommon', 'Common', 'No rarity data'];
 
 async function resolveMESymbol(mintAddress){
   try{
@@ -220,9 +292,38 @@ async function fetchFloorPrice(symbol){
   }
 }
 
+// Same technique as collections.html: current lowest listed price per
+// rarity tier, scanned from this collection's first 100 active listings
+// (an approximation of "current lowest," not an exhaustive multi-page
+// scan). Only fetched lazily, the first time a wallet's cards are viewed
+// grouped by rarity — most visitors who never touch that toggle never
+// pay for these extra Magic Eden calls at all.
+async function fetchListingsRarityFloors(symbol){
+  try{
+    const res = await fetch(`${ME_BASE}/collections/${symbol}/listings?offset=0&limit=100`);
+    if(!res.ok) return {};
+    const data = await res.json();
+    const map = {};
+    for(const item of (Array.isArray(data) ? data : [])){
+      const price = item?.price;
+      if(typeof price !== 'number') continue;
+      const rarity = normalizeRarity(item?.token?.attributes) || '__none__';
+      if(!(rarity in map) || price < map[rarity]) map[rarity] = price;
+    }
+    return map;
+  }catch(e){
+    return {};
+  }
+}
+
 async function loadWallet(address){
   gridEl.innerHTML = '';
   caveatEl.style.display = 'none';
+  controlsRowEl.style.display = 'none';
+  groupMode = 'collection';
+  sortMode = 'default';
+  setGroupButtons();
+  setSortButtons();
   setStatus('Fetching wallet assets…');
 
   let json;
@@ -244,29 +345,33 @@ async function loadWallet(address){
     return;
   }
 
-  const groups = {};
+  allGroups = {};
   for(const a of assets){
     const key = a.collectionKey || a.collectionName || a.mint;
-    if(!groups[key]) groups[key] = { name: a.collectionName || 'Unknown Collection', items: [], sampleMint: a.mint, floor: undefined };
-    groups[key].items.push(a);
+    if(!allGroups[key]) allGroups[key] = { name: a.collectionName || 'Unknown Collection', items: [], sampleMint: a.mint, symbol: undefined, floor: undefined, rarityFloors: undefined };
+    allGroups[key].items.push(a);
   }
-  const groupKeys = Object.keys(groups);
+  const groupKeys = Object.keys(allGroups);
+  buildFlatCards();
 
   setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Looking up floor prices…`);
   caveatEl.style.display = 'block';
-  render(groups); // one full paint, prices start as "…" — resolved prices patch in place below, never a second full re-render
+  render(allGroups); // one full paint, prices start as "…" — resolved prices patch in place below, never a second full re-render
 
   let done = 0;
   for(const key of groupKeys){
-    const symbol = await resolveMESymbol(groups[key].sampleMint);
-    groups[key].floor = symbol ? await fetchFloorPrice(symbol) : null;
+    const symbol = await resolveMESymbol(allGroups[key].sampleMint);
+    allGroups[key].symbol = symbol;
+    allGroups[key].floor = symbol ? await fetchFloorPrice(symbol) : null;
     done++;
     setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Floor prices: ${done}/${groupKeys.length}…`);
-    updatePriceForGroup(key, groups[key].floor);
+    updatePriceForGroup(key, allGroups[key].floor);
     await sleep(LOOKUP_PACE_MS);
   }
 
   setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Done.`);
+  controlsRowEl.style.display = 'flex';
+  [groupCollectionBtn, groupRarityBtn, sortDefaultBtn, sortPriceBtn].forEach(b => b.disabled = false);
 }
 
 // Every copy of the same comic gets its own serial baked into the name
@@ -338,6 +443,159 @@ function updatePriceForGroup(key, floor){
     priceEl.classList.toggle('unavailable', !floor);
   });
 }
+
+// Flat, price-independent card list — built once right after assets
+// load (not on every render), since which title/rarity/count a card
+// represents never changes, only its price display does.
+function buildFlatCards(){
+  flatCards = [];
+  for(const key of Object.keys(allGroups)){
+    const g = allGroups[key];
+    for(const { representative: item, count } of groupByName(g.items)){
+      flatCards.push({
+        key,
+        collName: g.name,
+        title: cleanTitle(item.name) || item.name,
+        image: item.image,
+        mint: item.mint,
+        count,
+        rarity: normalizeRarity(item.attributes),
+      });
+    }
+  }
+}
+
+// Resolves what price text/value to show a card under the *current*
+// groupMode. Rarity mode intentionally does not fall back to the
+// collection-wide floor for a card that DOES have a rarity — showing a
+// Common floor next to a Legendary copy would be actively misleading.
+// A card with no rarity trait at all still uses the collection floor,
+// since there's no per-rarity number to be more precise with.
+function getPrice(card){
+  const g = allGroups[card.key];
+  if(groupMode === 'rarity' && card.rarity){
+    if(g.rarityFloors === undefined) return { text: '…', value: null };
+    const p = g.rarityFloors[card.rarity];
+    return typeof p === 'number'
+      ? { text: `${p.toFixed(4)} SOL`, value: p }
+      : { text: `no active ${card.rarity} listings`, value: null };
+  }
+  if(g.floor === undefined) return { text: '…', value: null };
+  return g.floor === null
+    ? { text: 'no ME data', value: null }
+    : { text: `${g.floor.toFixed(4)} SOL`, value: g.floor };
+}
+
+function rarityClass(label){
+  return label ? 'rarity-' + label.toLowerCase() : '';
+}
+
+// Full rebuild, grouped into sections (by collection or by rarity) and
+// optionally sorted by price — only ever called from an explicit user
+// click on the Group/Sort controls (after the initial load has already
+// finished), never from the progressive-loading loop above, so this
+// doesn't reintroduce the full-grid-rebuild flicker that render()/
+// updatePriceForGroup() were built to avoid.
+function renderAll(){
+  const sections = new Map(); // sectionKey -> { label, cards }
+  for(const card of flatCards){
+    const sKey = groupMode === 'rarity' ? (card.rarity || 'No rarity data') : card.key;
+    const label = groupMode === 'rarity' ? (card.rarity || 'No rarity data') : card.collName;
+    if(!sections.has(sKey)) sections.set(sKey, { label, cards: [] });
+    sections.get(sKey).cards.push({ ...card, _price: getPrice(card) });
+  }
+
+  let sectionList = [...sections.values()];
+  if(sortMode === 'price-desc'){
+    for(const s of sectionList){
+      s.cards.sort((a, b) => (b._price.value ?? -Infinity) - (a._price.value ?? -Infinity));
+    }
+    sectionList.sort((a, b) => {
+      const bestA = Math.max(...a.cards.map(c => c._price.value ?? -Infinity));
+      const bestB = Math.max(...b.cards.map(c => c._price.value ?? -Infinity));
+      return bestB - bestA;
+    });
+  } else if(groupMode === 'rarity'){
+    sectionList.sort((a, b) => RARITY_SORT_ORDER.indexOf(a.label) - RARITY_SORT_ORDER.indexOf(b.label));
+  }
+
+  let html = '';
+  for(const s of sectionList){
+    html += `<div class="section-header">${esc(s.label)}</div>`;
+    for(const c of s.cards){
+      const pdpUrl = `https://magiceden.io/item-details/${c.mint}`;
+      html += `
+        <a class="card" href="${esc(pdpUrl)}" target="_blank" rel="noopener">
+          <div class="img-wrap">
+            <img src="${esc(c.image)}" loading="lazy" onerror="this.style.opacity=0.2">
+            ${c.count > 1 ? `<div class="qty-badge">&times;${c.count}</div>` : ''}
+          </div>
+          <div class="body">
+            <div class="sub">${esc(c.collName)}</div>
+            <div class="name">${esc(c.title)}</div>
+            ${c.rarity ? `<div class="rarity-badge ${rarityClass(c.rarity)}">${esc(c.rarity)}</div>` : ''}
+            <div class="price ${c._price.value === null ? 'unavailable' : ''}">${c._price.text}</div>
+            <div class="floor-label">${groupMode === 'rarity' && c.rarity ? 'this rarity, lowest listed' : 'collection floor'}</div>
+            <div class="me-tag">View on Magic Eden &#8599;</div>
+          </div>
+        </a>
+      `;
+    }
+  }
+  gridEl.innerHTML = html || '<div class="empty">Nothing to show yet.</div>';
+}
+
+function setGroupButtons(){
+  groupCollectionBtn.classList.toggle('active', groupMode === 'collection');
+  groupRarityBtn.classList.toggle('active', groupMode === 'rarity');
+}
+function setSortButtons(){
+  sortDefaultBtn.classList.toggle('active', sortMode === 'default');
+  sortPriceBtn.classList.toggle('active', sortMode === 'price-desc');
+}
+
+// Rarity floors are fetched lazily, once, the first time "By Rarity" is
+// selected — most visitors who never touch that toggle never pay for
+// the extra Magic Eden calls it takes. Cached on allGroups[key] after
+// that, so switching back and forth is instant.
+async function ensureRarityFloorsLoaded(){
+  const keys = Object.keys(allGroups).filter(k => allGroups[k].rarityFloors === undefined);
+  if(keys.length === 0) return;
+  [groupCollectionBtn, groupRarityBtn, sortDefaultBtn, sortPriceBtn].forEach(b => b.disabled = true);
+  let done = 0;
+  for(const key of keys){
+    const g = allGroups[key];
+    g.rarityFloors = g.symbol ? await fetchListingsRarityFloors(g.symbol) : {};
+    done++;
+    setStatus(`Fetching rarity prices… ${done}/${keys.length}`);
+    await sleep(LOOKUP_PACE_MS);
+  }
+  setStatus('Done.');
+  [groupCollectionBtn, groupRarityBtn, sortDefaultBtn, sortPriceBtn].forEach(b => b.disabled = false);
+}
+
+groupCollectionBtn.addEventListener('click', () => {
+  groupMode = 'collection';
+  setGroupButtons();
+  renderAll();
+});
+groupRarityBtn.addEventListener('click', async () => {
+  groupMode = 'rarity';
+  setGroupButtons();
+  await ensureRarityFloorsLoaded();
+  renderAll();
+});
+sortDefaultBtn.addEventListener('click', () => {
+  sortMode = 'default';
+  setSortButtons();
+  renderAll();
+});
+sortPriceBtn.addEventListener('click', async () => {
+  sortMode = 'price-desc';
+  setSortButtons();
+  if(groupMode === 'rarity') await ensureRarityFloorsLoaded();
+  renderAll();
+});
 
 function go(){
   const addr = walletInputEl.value.trim();
