@@ -86,17 +86,20 @@ const NON_COLLECTIBLE_INTERFACES = new Set(["FungibleAsset", "FungibleToken"]);
 // Bounds how many off-chain-metadata fallback fetches one wallet scan
 // can trigger (see backfillMissingMetadata below) — protects against a
 // wallet full of unusual/malformed metadata blowing up scan latency.
-// Confirmed live against a real wallet that missing *attributes* (not
-// just missing images) is common — one 11-copy title had 9 of 11 come
-// back from Helius with an empty attributes array despite having a
-// resolved image — so this needs to cover a meaningful fraction of a
-// large wallet, not just a handful of edge cases. 150 at batch size 10
-// (~15 rounds of concurrent fetches) is a deliberate balance: high
-// enough to backfill most real wallets in one pass, bounded so a very
-// large or pathological wallet can't push the request into a Workers
-// execution timeout. Tune down if that starts happening in practice.
-const MAX_METADATA_FALLBACK_FETCHES = 150;
-const METADATA_FALLBACK_BATCH_SIZE = 10;
+// Confirmed live against a real 669-asset wallet that this gap is
+// common, not an edge case: 219 of 669 assets (~33%) came back from
+// Helius with empty image AND empty attributes. The first cap tried
+// here (150) undershot that real number — 69 assets never got attempted
+// and stayed showing "No rarity data"/no preview even after the fix
+// deployed, purely because they fell past the cap in whatever order the
+// assets array happened to be in. Raised to 300 (with headroom above
+// the 219 actually observed) at a slightly larger batch size to keep
+// total round-trip count from growing much. Still bounded, not
+// unlimited — if very large wallets start hitting Workers execution
+// limits, that's the number to reconsider, ideally alongside making
+// this backfill lazy/on-demand instead of eager on every cache miss.
+const MAX_METADATA_FALLBACK_FETCHES = 300;
+const METADATA_FALLBACK_BATCH_SIZE = 15;
 
 function extractImageFromAsset(a) {
   const links = (a.content && a.content.links) || {};
