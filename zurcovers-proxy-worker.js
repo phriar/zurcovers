@@ -84,10 +84,19 @@ const WALLET_ASSET_MAX_PAGES = 10; // Helius getAssetsByOwner, 1000/page — sam
 const NON_COLLECTIBLE_INTERFACES = new Set(["FungibleAsset", "FungibleToken"]);
 
 // Bounds how many off-chain-metadata fallback fetches one wallet scan
-// can trigger (see backfillMissingImages below) — protects against a
+// can trigger (see backfillMissingMetadata below) — protects against a
 // wallet full of unusual/malformed metadata blowing up scan latency.
-const MAX_IMAGE_FALLBACK_FETCHES = 50;
-const IMAGE_FALLBACK_BATCH_SIZE = 8;
+// Confirmed live against a real wallet that missing *attributes* (not
+// just missing images) is common — one 11-copy title had 9 of 11 come
+// back from Helius with an empty attributes array despite having a
+// resolved image — so this needs to cover a meaningful fraction of a
+// large wallet, not just a handful of edge cases. 150 at batch size 10
+// (~15 rounds of concurrent fetches) is a deliberate balance: high
+// enough to backfill most real wallets in one pass, bounded so a very
+// large or pathological wallet can't push the request into a Workers
+// execution timeout. Tune down if that starts happening in practice.
+const MAX_METADATA_FALLBACK_FETCHES = 150;
+const METADATA_FALLBACK_BATCH_SIZE = 10;
 
 function extractImageFromAsset(a) {
   const links = (a.content && a.content.links) || {};
@@ -107,7 +116,7 @@ function extractImageFromAsset(a) {
 // Same shape as slideshow-legacy.html's parse() — kept intentionally
 // minimal (no full raw Helius payload forwarded to the client) so the
 // response stays small for wallets holding hundreds of assets. jsonUri
-// is the one exception — kept only long enough for backfillMissingImages
+// is the one exception — kept only long enough for backfillMissingMetadata
 // to use it, stripped before the response goes out (see fetchWalletAssets).
 function parseHeliusAsset(a) {
   const meta = (a.content && a.content.metadata) || {};
@@ -127,28 +136,39 @@ function parseHeliusAsset(a) {
   };
 }
 
-// A minority of assets (older/nonstandard mints, mostly) don't come back
-// from Helius with a pre-resolved image in content.links/content.files —
-// previously that meant the item was dropped from results entirely, with
-// no indication anything was missing. This fetches each such item's own
-// off-chain metadata JSON directly as a fallback, in small concurrent
-// batches (not fully sequential — bounded latency) rather than one at a
-// time. Items still without an image after this are kept anyway (image:
-// "") rather than dropped — the frontend renders a placeholder for those,
-// which is far better than a collection silently missing entries.
-async function backfillMissingImages(assets) {
-  const needsImage = assets.filter((a) => !a.image && a.jsonUri).slice(0, MAX_IMAGE_FALLBACK_FETCHES);
-  for (let i = 0; i < needsImage.length; i += IMAGE_FALLBACK_BATCH_SIZE) {
-    const batch = needsImage.slice(i, i + IMAGE_FALLBACK_BATCH_SIZE);
+// A meaningful share of assets (confirmed live, not just a theoretical
+// edge case) come back from Helius with a missing image, an empty
+// attributes array, or both — Helius's own indexer didn't fully resolve
+// their off-chain metadata JSON, even though the asset itself is real
+// and owned. Previously a missing image meant the item was dropped from
+// results entirely with no indication anything was missing; a missing
+// attributes array meant the item silently lost its rarity (grouped
+// under "No rarity data" even when the collection does use rarity
+// tiers, or worse, undercounted collections/comics — see the
+// "Showcase #4" investigation this fix came out of). This fetches each
+// such item's own metadata JSON directly as a fallback, in small
+// concurrent batches (not fully sequential — bounded latency) rather
+// than one at a time, and fills in whichever of image/attributes was
+// actually missing. Items still missing either after this are kept
+// anyway (image: "", attributes: []) rather than dropped — the frontend
+// renders a placeholder for a missing image, and simply shows no rarity
+// badge for missing attributes.
+async function backfillMissingMetadata(assets) {
+  const needsFetch = assets
+    .filter((a) => (!a.image || (Array.isArray(a.attributes) && a.attributes.length === 0)) && a.jsonUri)
+    .slice(0, MAX_METADATA_FALLBACK_FETCHES);
+  for (let i = 0; i < needsFetch.length; i += METADATA_FALLBACK_BATCH_SIZE) {
+    const batch = needsFetch.slice(i, i + METADATA_FALLBACK_BATCH_SIZE);
     await Promise.all(
       batch.map(async (a) => {
         try {
           const res = await fetch(a.jsonUri, { headers: { Accept: "application/json" } });
           if (!res.ok) return;
           const meta = await res.json();
-          a.image = meta?.image || "";
+          if (!a.image) a.image = meta?.image || "";
+          if (!a.attributes || a.attributes.length === 0) a.attributes = Array.isArray(meta?.attributes) ? meta.attributes : [];
         } catch {
-          // leave image empty — frontend placeholder handles this
+          // leave as-is — frontend already handles missing image; missing attributes just means no rarity badge
         }
       })
     );
@@ -185,7 +205,7 @@ async function fetchWalletAssets(address, env) {
     }
     if (items.length < 1000) break;
   }
-  await backfillMissingImages(assets);
+  await backfillMissingMetadata(assets);
   for (const a of assets) delete a.jsonUri; // internal-only, not part of the client-facing shape
   return assets;
 }
