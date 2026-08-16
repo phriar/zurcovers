@@ -157,21 +157,34 @@ function parseHeliusAsset(a) {
 // renders a placeholder for a missing image, and simply shows no rarity
 // badge for missing attributes.
 async function backfillMissingMetadata(assets) {
-  const needsFetch = assets
-    .filter((a) => (!a.image || (Array.isArray(a.attributes) && a.attributes.length === 0)) && a.jsonUri)
-    .slice(0, MAX_METADATA_FALLBACK_FETCHES);
+  // TEMPORARY DIAGNOSTIC — the cap increase (150->300) barely moved the
+  // still-missing count on a real wallet, which rules out the cap as the
+  // bottleneck. Tagging every candidate with _debugBackfill so the actual
+  // failure mode (no json_uri at all vs. a failed fetch vs. something
+  // else) is visible in the response instead of guessed at blind.
+  // Remove _debugBackfill (and the jsonUri-stripping opt-out below) once
+  // diagnosed.
+  const candidates = assets.filter((a) => !a.image || (Array.isArray(a.attributes) && a.attributes.length === 0));
+  for (const a of candidates) {
+    a._debugBackfill = a.jsonUri ? "pending" : "no-json-uri";
+  }
+  const needsFetch = candidates.filter((a) => a.jsonUri).slice(0, MAX_METADATA_FALLBACK_FETCHES);
+  for (const a of candidates) {
+    if (a._debugBackfill === "pending" && !needsFetch.includes(a)) a._debugBackfill = "over-cap";
+  }
   for (let i = 0; i < needsFetch.length; i += METADATA_FALLBACK_BATCH_SIZE) {
     const batch = needsFetch.slice(i, i + METADATA_FALLBACK_BATCH_SIZE);
     await Promise.all(
       batch.map(async (a) => {
         try {
           const res = await fetch(a.jsonUri, { headers: { Accept: "application/json" } });
-          if (!res.ok) return;
+          if (!res.ok) { a._debugBackfill = `fetch-http-${res.status}`; return; }
           const meta = await res.json();
           if (!a.image) a.image = meta?.image || "";
           if (!a.attributes || a.attributes.length === 0) a.attributes = Array.isArray(meta?.attributes) ? meta.attributes : [];
-        } catch {
-          // leave as-is — frontend already handles missing image; missing attributes just means no rarity badge
+          a._debugBackfill = "ok";
+        } catch (err) {
+          a._debugBackfill = `fetch-error:${String(err && err.message || err).slice(0, 60)}`;
         }
       })
     );
@@ -209,7 +222,11 @@ async function fetchWalletAssets(address, env) {
     if (items.length < 1000) break;
   }
   await backfillMissingMetadata(assets);
-  for (const a of assets) delete a.jsonUri; // internal-only, not part of the client-facing shape
+  // TEMPORARY: jsonUri normally gets stripped here (internal-only, not
+  // part of the client-facing shape) — left in for now alongside
+  // _debugBackfill above so the actual failure mode is visible in the
+  // response. Restore `for (const a of assets) delete a.jsonUri;` once
+  // diagnosed.
   return assets;
 }
 
