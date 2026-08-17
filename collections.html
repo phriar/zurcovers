@@ -468,18 +468,24 @@ function renderComicsList(key, symbol){
   // Group owned items in this collection by comic title, and within
   // each title, by rarity tier (a title can in principle have owned
   // copies across more than one rarity, if that print run itself has
-  // rarity variants sharing the same base name).
+  // rarity variants sharing the same base name). Each rarity tracks its
+  // OWN representative mint — every rarity row previously linked to
+  // entry.representative (the title's first-seen item overall), so a
+  // Common row and a Legendary row under the same title both pointed at
+  // whichever rarity happened to be seen first, not an item of that row's
+  // actual rarity.
   const byTitle = new Map();
   for(const item of g.items){
     const title = cleanTitle(item.name) || item.mint;
-    if(!byTitle.has(title)) byTitle.set(title, { representative: item, rarityCounts: new Map() });
+    if(!byTitle.has(title)) byTitle.set(title, { representative: item, rarities: new Map() });
     const entry = byTitle.get(title);
     const rarity = normalizeRarity(item.attributes); // null = no rarity trait on this collection
-    entry.rarityCounts.set(rarity, (entry.rarityCounts.get(rarity) || 0) + 1);
+    if(!entry.rarities.has(rarity)) entry.rarities.set(rarity, { count: 0, mint: item.mint });
+    entry.rarities.get(rarity).count++;
   }
 
   comicsListEl.innerHTML = [...byTitle.entries()].map(([title, entry]) => {
-    const rarityRows = [...entry.rarityCounts.entries()].map(([rarity, count]) => {
+    const rarityRows = [...entry.rarities.entries()].map(([rarity, info]) => {
       let priceHtml;
       if(rarity === null){
         // This collection doesn't use rarity tiers — the overall floor
@@ -493,11 +499,11 @@ function renderComicsList(key, symbol){
           ? `<span class="rarity-price">${floor.toFixed(4)} SOL lowest listed</span>`
           : `<span class="rarity-price unavailable">no active ${esc(rarity)} listings</span>`;
       }
-      const pdpUrl = `https://magiceden.io/item-details/${entry.representative.mint}`;
+      const pdpUrl = `https://magiceden.io/item-details/${info.mint}`;
       return `
         <div class="rarity-row">
           <span class="rarity-badge ${rarityClass(rarity)}">${rarity ? esc(rarity) : 'No rarity data'}</span>
-          <span class="rarity-owned">you own &times;${count}</span>
+          <span class="rarity-owned">you own &times;${info.count}</span>
           ${priceHtml}
           <a class="rarity-link" href="${esc(pdpUrl)}" target="_blank" rel="noopener">Magic Eden &#8599;</a>
         </div>
