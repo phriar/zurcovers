@@ -230,7 +230,7 @@
   <div class="control-group">
     <span class="control-label">Sort</span>
     <button class="pill active" id="sort-default" disabled>Recently Added</button>
-    <button class="pill" id="sort-price" disabled>Highest Floor First</button>
+    <button class="pill" id="sort-price" disabled>Highest Value First</button>
   </div>
 </div>
 
@@ -406,30 +406,37 @@ async function loadWallet(address){
   searchRowEl.style.display = 'block';
   renderAll(); // one full paint, prices start as "…" — resolved prices patch in place below via data-group/data-price, never a second full rebuild during loading
   updatePortfolioValue();
+  // Controls unlock immediately rather than waiting for every collection
+  // to resolve — with a wallet spanning 100+ collections, that wait can
+  // run into minutes. Sort by "Highest Value First" works correctly on
+  // partial data (unresolved collections sort last, see renderAll()'s
+  // ?? -Infinity fallback), so there's real value in letting a visitor
+  // click it early and re-click as more prices come in, rather than
+  // forcing them to wait through the whole list first.
+  // Group by Rarity stays disabled until this loop finishes: clicking it
+  // kicks off ensureRarityFloorsLoaded(), its own paced fetch loop over
+  // every collection — running that concurrently with this loop would
+  // roughly double the simultaneous Magic Eden request rate.
+  controlsRowEl.style.display = 'flex';
+  [groupCollectionBtn, sortDefaultBtn, sortPriceBtn].forEach(b => b.disabled = false);
 
-  // Fetches both the collection floor AND rarity-tier floors for every
-  // collection up front now (previously rarityFloors was lazy, fetched
-  // only the first time "By Rarity" was clicked) — the portfolio value
-  // estimate below needs per-rarity pricing available from the start to
-  // be meaningfully more accurate than flat collection-floor × count,
-  // not gated behind a toggle nobody may click. Doubles the Magic Eden
-  // request volume per collection (both run in parallel, so it doesn't
-  // double the per-collection wait, just the total requests fired).
+  // Reverted to collection floor only (no eager rarity-floor fetch) —
+  // that added a second Magic Eden call per collection (slower, and
+  // more requests for no benefit at this scale) and, worse, was
+  // frequently *less* accurate: a rarity tier with zero current active
+  // listings (common for thin secondary markets, especially rarer
+  // tiers) silently fell back to the collection's overall floor, which
+  // for a rare/high-tier item usually understates it substantially.
+  // Simple collection-floor × count is coarser but doesn't have that
+  // silent-understating failure mode. Rarity-specific pricing is still
+  // available on demand via "Group by Rarity" (see
+  // ensureRarityFloorsLoaded below), just no longer feeds the headline
+  // portfolio total.
   let done = 0;
   for(const key of groupKeys){
     const symbol = await resolveMESymbol(allGroups[key].sampleMint);
     allGroups[key].symbol = symbol;
-    if(symbol){
-      const [floor, rarityFloors] = await Promise.all([
-        fetchFloorPrice(symbol),
-        fetchListingsRarityFloors(symbol),
-      ]);
-      allGroups[key].floor = floor;
-      allGroups[key].rarityFloors = rarityFloors;
-    } else {
-      allGroups[key].floor = null;
-      allGroups[key].rarityFloors = {};
-    }
+    allGroups[key].floor = symbol ? await fetchFloorPrice(symbol) : null;
     done++;
     setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Floor prices: ${done}/${groupKeys.length}…`);
     updatePriceForGroup(key, allGroups[key].floor);
@@ -438,8 +445,7 @@ async function loadWallet(address){
   }
 
   setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Done.`);
-  controlsRowEl.style.display = 'flex';
-  [groupCollectionBtn, groupRarityBtn, sortDefaultBtn, sortPriceBtn].forEach(b => b.disabled = false);
+  groupRarityBtn.disabled = false;
 
   // Covers/rarity the Worker couldn't resolve in time for this response
   // keep resolving in the background there (see zurcovers-proxy-worker.js's
@@ -537,51 +543,37 @@ function updatePriceForGroup(key, floor){
   });
 }
 
-// Estimated portfolio value — priced PER ITEM, not per collection: each
-// asset uses its own rarity tier's current lowest-listed price when
-// known (g.rarityFloors, fetched eagerly for every collection now — see
-// the loop above), falling back to the collection's overall floor only
-// when that specific item has no rarity trait, or its rarity has no
-// active listings to price against right now. Pricing a Legendary copy
-// at the same number as a Common one (flat collection-floor × count,
-// the original approach) understates rare pieces — this is deliberately
-// more expensive to compute (needs rarityFloors loaded for every
-// collection, not just ones the visitor happened to drill into) in
-// exchange for that accuracy. Called after every price resolves during
-// the loop above, so it fills in progressively rather than jumping from
-// nothing to a final number.
+// Estimated portfolio value — sum of each held asset's own COLLECTION
+// floor price × count. Deliberately NOT rarity-aware: an earlier version
+// priced each item by its own rarity tier's current lowest active
+// listing, which needed eager rarity-floor data for every collection
+// (a second Magic Eden call each, ~doubling load time) and turned out to
+// frequently understate value anyway — a rarity with zero current active
+// listings (common for thinner tiers) silently fell back to the
+// collection floor, which for a rare item is usually well below its real
+// worth. Coarser, but faster and doesn't have that silent-understating
+// failure mode. Called after every price resolves during the loop above,
+// so it fills in progressively rather than jumping from nothing to a
+// final number.
 function updatePortfolioValue(){
-  let totalValue = 0, pricedByRarity = 0, pricedByFloor = 0, unpricedCount = 0, pendingCount = 0;
+  let totalValue = 0, pricedCount = 0, unpricedCount = 0, pendingCount = 0;
   for(const key of Object.keys(allGroups)){
     const g = allGroups[key];
-    if(g.floor === undefined){ pendingCount += g.items.length; continue; }
-    for(const item of g.items){
-      const rarity = normalizeRarity(item.attributes);
-      const rarityFloor = rarity && g.rarityFloors ? g.rarityFloors[rarity] : undefined;
-      if(typeof rarityFloor === 'number'){
-        totalValue += rarityFloor;
-        pricedByRarity++;
-      } else if(g.floor !== null){
-        totalValue += g.floor;
-        pricedByFloor++;
-      } else {
-        unpricedCount++;
-      }
-    }
+    const n = g.items.length;
+    if(g.floor === undefined) pendingCount += n;
+    else if(g.floor === null) unpricedCount += n;
+    else { totalValue += g.floor * n; pricedCount += n; }
   }
-  const pricedCount = pricedByRarity + pricedByFloor;
   if(pricedCount === 0 && pendingCount === 0){
     portfolioValueEl.style.display = 'none';
     return;
   }
   const notes = [];
   if(pendingCount > 0) notes.push(`${pendingCount} still pricing…`);
-  if(pricedByRarity > 0) notes.push(`${pricedByRarity} priced by their own rarity tier`);
-  if(pricedByFloor > 0) notes.push(`${pricedByFloor} priced by collection floor (no rarity data, or no active listings for that rarity)`);
-  if(unpricedCount > 0) notes.push(`${unpricedCount} with no Magic Eden data at all, not included`);
+  if(unpricedCount > 0) notes.push(`${unpricedCount} with no Magic Eden floor data, not included`);
   portfolioValueEl.style.display = 'block';
   portfolioValueEl.innerHTML =
-    `Estimated portfolio value: <b>${totalValue.toFixed(3)} SOL</b>` +
+    `Estimated portfolio value: <b>${totalValue.toFixed(3)} SOL</b> — sum of each held asset's collection floor price` +
     (notes.length ? `<span class="note">${notes.join(' · ')}</span>` : '');
 }
 
@@ -712,11 +704,17 @@ function renderAll(){
     for(const s of sectionList){
       s.cards.sort((a, b) => (b._price.value ?? -Infinity) - (a._price.value ?? -Infinity));
     }
-    sectionList.sort((a, b) => {
-      const bestA = Math.max(...a.cards.map(c => c._price.value ?? -Infinity));
-      const bestB = Math.max(...b.cards.map(c => c._price.value ?? -Infinity));
-      return bestB - bestA;
-    });
+    // Ranks sections (collections, in the default grouping) by TOTAL
+    // value held there — price × how many copies of each card, summed —
+    // not by whichever single card happens to be priciest. A collection
+    // holding 12 modestly-priced items outranks one where you hold a
+    // single pricier piece, if the 12 add up to more. Cards with no
+    // resolved price yet contribute 0 to the sum (not treated as free —
+    // just not counted), so a still-loading collection naturally sits
+    // near the bottom until its real prices land instead of skewing the
+    // ranking with a placeholder value.
+    const sectionTotal = (s) => s.cards.reduce((sum, c) => sum + (c._price.value ?? 0) * c.count, 0);
+    sectionList.sort((a, b) => sectionTotal(b) - sectionTotal(a));
   } else if(groupMode === 'rarity'){
     sectionList.sort((a, b) => RARITY_SORT_ORDER.indexOf(a.label) - RARITY_SORT_ORDER.indexOf(b.label));
   }
