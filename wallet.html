@@ -407,11 +407,29 @@ async function loadWallet(address){
   renderAll(); // one full paint, prices start as "…" — resolved prices patch in place below via data-group/data-price, never a second full rebuild during loading
   updatePortfolioValue();
 
+  // Fetches both the collection floor AND rarity-tier floors for every
+  // collection up front now (previously rarityFloors was lazy, fetched
+  // only the first time "By Rarity" was clicked) — the portfolio value
+  // estimate below needs per-rarity pricing available from the start to
+  // be meaningfully more accurate than flat collection-floor × count,
+  // not gated behind a toggle nobody may click. Doubles the Magic Eden
+  // request volume per collection (both run in parallel, so it doesn't
+  // double the per-collection wait, just the total requests fired).
   let done = 0;
   for(const key of groupKeys){
     const symbol = await resolveMESymbol(allGroups[key].sampleMint);
     allGroups[key].symbol = symbol;
-    allGroups[key].floor = symbol ? await fetchFloorPrice(symbol) : null;
+    if(symbol){
+      const [floor, rarityFloors] = await Promise.all([
+        fetchFloorPrice(symbol),
+        fetchListingsRarityFloors(symbol),
+      ]);
+      allGroups[key].floor = floor;
+      allGroups[key].rarityFloors = rarityFloors;
+    } else {
+      allGroups[key].floor = null;
+      allGroups[key].rarityFloors = {};
+    }
     done++;
     setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Floor prices: ${done}/${groupKeys.length}…`);
     updatePriceForGroup(key, allGroups[key].floor);
@@ -519,32 +537,51 @@ function updatePriceForGroup(key, floor){
   });
 }
 
-// Estimated portfolio value — sum of each held asset's own COLLECTION
-// floor price (not a per-rarity floor, even in rarity-grouped view: not
-// every collection has rarity floors loaded, and this needs to always
-// be computable from data every wallet load already fetches). Called
-// after every price resolves during the loop above, so it fills in
-// progressively alongside the individual card prices rather than
-// jumping from nothing to a final number.
+// Estimated portfolio value — priced PER ITEM, not per collection: each
+// asset uses its own rarity tier's current lowest-listed price when
+// known (g.rarityFloors, fetched eagerly for every collection now — see
+// the loop above), falling back to the collection's overall floor only
+// when that specific item has no rarity trait, or its rarity has no
+// active listings to price against right now. Pricing a Legendary copy
+// at the same number as a Common one (flat collection-floor × count,
+// the original approach) understates rare pieces — this is deliberately
+// more expensive to compute (needs rarityFloors loaded for every
+// collection, not just ones the visitor happened to drill into) in
+// exchange for that accuracy. Called after every price resolves during
+// the loop above, so it fills in progressively rather than jumping from
+// nothing to a final number.
 function updatePortfolioValue(){
-  let totalValue = 0, pricedCount = 0, unpricedCount = 0, pendingCount = 0;
+  let totalValue = 0, pricedByRarity = 0, pricedByFloor = 0, unpricedCount = 0, pendingCount = 0;
   for(const key of Object.keys(allGroups)){
     const g = allGroups[key];
-    const n = g.items.length;
-    if(g.floor === undefined) pendingCount += n;
-    else if(g.floor === null) unpricedCount += n;
-    else { totalValue += g.floor * n; pricedCount += n; }
+    if(g.floor === undefined){ pendingCount += g.items.length; continue; }
+    for(const item of g.items){
+      const rarity = normalizeRarity(item.attributes);
+      const rarityFloor = rarity && g.rarityFloors ? g.rarityFloors[rarity] : undefined;
+      if(typeof rarityFloor === 'number'){
+        totalValue += rarityFloor;
+        pricedByRarity++;
+      } else if(g.floor !== null){
+        totalValue += g.floor;
+        pricedByFloor++;
+      } else {
+        unpricedCount++;
+      }
+    }
   }
+  const pricedCount = pricedByRarity + pricedByFloor;
   if(pricedCount === 0 && pendingCount === 0){
     portfolioValueEl.style.display = 'none';
     return;
   }
   const notes = [];
   if(pendingCount > 0) notes.push(`${pendingCount} still pricing…`);
-  if(unpricedCount > 0) notes.push(`${unpricedCount} with no Magic Eden floor data, not included`);
+  if(pricedByRarity > 0) notes.push(`${pricedByRarity} priced by their own rarity tier`);
+  if(pricedByFloor > 0) notes.push(`${pricedByFloor} priced by collection floor (no rarity data, or no active listings for that rarity)`);
+  if(unpricedCount > 0) notes.push(`${unpricedCount} with no Magic Eden data at all, not included`);
   portfolioValueEl.style.display = 'block';
   portfolioValueEl.innerHTML =
-    `Estimated portfolio value: <b>${totalValue.toFixed(3)} SOL</b> — sum of each held asset's collection floor price` +
+    `Estimated portfolio value: <b>${totalValue.toFixed(3)} SOL</b>` +
     (notes.length ? `<span class="note">${notes.join(' · ')}</span>` : '');
 }
 
@@ -719,10 +756,13 @@ function setSortButtons(){
   sortPriceBtn.classList.toggle('active', sortMode === 'price-desc');
 }
 
-// Rarity floors are fetched lazily, once, the first time "By Rarity" is
-// selected — most visitors who never touch that toggle never pay for
-// the extra Magic Eden calls it takes. Cached on allGroups[key] after
-// that, so switching back and forth is instant.
+// Rarity floors are now fetched eagerly for every collection during the
+// main loading loop above (the portfolio value estimate needs them
+// available from the start, not gated behind this toggle) — so this
+// normally finds nothing left to do and returns immediately. Kept as a
+// safety net for the case a collection's rarityFloors fetch is somehow
+// still missing (e.g. failed silently) rather than assuming the eager
+// pass always fully succeeds.
 async function ensureRarityFloorsLoaded(){
   const keys = Object.keys(allGroups).filter(k => allGroups[k].rarityFloors === undefined);
   if(keys.length === 0) return;
