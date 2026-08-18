@@ -83,6 +83,20 @@
     font-size:.72rem; line-height:1.7; color:rgba(255,255,255,0.5);
   }
 
+  .controls-row{
+    position:relative; z-index:1; padding:0 32px 16px; display:flex; gap:18px; flex-wrap:wrap;
+  }
+  .control-group{ display:flex; align-items:center; gap:6px; }
+  .control-label{ font-size:.6rem; letter-spacing:.1em; text-transform:uppercase; color:rgba(255,255,255,0.35); margin-right:2px; }
+  .pill{
+    font-family:'DM Mono',monospace; font-size:.6rem; letter-spacing:.08em; text-transform:uppercase;
+    color:rgba(255,255,255,0.4); padding:6px 12px; border:1px solid var(--border); border-radius:20px;
+    cursor:pointer; transition:all .15s; background:transparent;
+  }
+  .pill:hover:not(:disabled){ color:rgba(255,255,255,0.7); border-color:rgba(143,111,232,0.3); }
+  .pill.active{ color:#fff; background:linear-gradient(135deg, var(--deep), var(--gold)); border-color:transparent; }
+  .pill:disabled{ opacity:0.35; cursor:default; }
+
   .back-btn{
     position:relative; z-index:1; margin:16px 32px 0; display:inline-flex; align-items:center; gap:6px;
     background:none; border:1px solid var(--border); color:rgba(255,255,255,0.6);
@@ -119,6 +133,7 @@
     display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
   }
   .coll-card .count{ font-family:'DM Mono',monospace; font-size:.66rem; letter-spacing:.05em; color:rgba(255,255,255,0.4); }
+  .coll-card .floor{ font-family:'DM Mono',monospace; font-size:.66rem; letter-spacing:.05em; color:rgba(255,255,255,0.55); margin-top:3px; }
   .coll-card .arrow{ font-family:'DM Mono',monospace; font-size:.62rem; color:rgba(143,111,232,0.7); margin-top:6px; }
 
   /* LEVEL 2 — comics within a collection, each with a rarity breakdown */
@@ -178,6 +193,14 @@
   <button id="load-btn">Load Wallet</button>
 </div>
 
+<div class="controls-row" id="controls-row" style="display:none">
+  <div class="control-group">
+    <span class="control-label">Sort</span>
+    <button class="pill active" id="sort-floor" disabled>Highest Floor First</button>
+    <button class="pill" id="sort-count" disabled>Most Owned</button>
+  </div>
+</div>
+
 <div id="status"></div>
 <div class="caveat" id="caveat" style="display:none">
   Small/unfamiliar collection entries in a wallet are often unsolicited airdrop NFTs, not anything you acquired — Magic Eden simply not recognizing one is common and not itself a red flag. Never interact with anything claiming you need to "claim" a reward.
@@ -208,6 +231,9 @@ const SOL_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 const statusEl = document.getElementById('status');
 const caveatEl = document.getElementById('caveat');
+const controlsRowEl = document.getElementById('controls-row');
+const sortFloorBtn = document.getElementById('sort-floor');
+const sortCountBtn = document.getElementById('sort-count');
 const collectionsViewEl = document.getElementById('collections-view');
 const detailViewEl = document.getElementById('detail-view');
 const detailTitleEl = document.getElementById('detail-title');
@@ -216,7 +242,9 @@ const backBtnEl = document.getElementById('back-btn');
 const walletInputEl = document.getElementById('wallet-input');
 const loadBtnEl = document.getElementById('load-btn');
 
-let groups = {}; // collectionKey -> { name, items }
+let groups = {}; // collectionKey -> { name, items, symbol, floor }
+let sortMode = 'floor-desc'; // 'floor-desc' | 'count-desc'
+const LOOKUP_PACE_MS = 900; // matches wallet.html — Magic Eden enforces a real per-minute rate limit
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 function setStatus(msg, isErr){
@@ -304,6 +332,8 @@ async function loadWallet(address){
   detailViewEl.style.display = 'none';
   collectionsViewEl.style.display = 'grid';
   caveatEl.style.display = 'none';
+  controlsRowEl.style.display = 'none';
+  [sortFloorBtn, sortCountBtn].forEach(b => b.disabled = true);
   setStatus('Fetching wallet assets…');
 
   let json;
@@ -334,6 +364,8 @@ async function loadWallet(address){
 
   caveatEl.style.display = 'block';
   renderCollections();
+  controlsRowEl.style.display = 'flex';
+  [sortFloorBtn, sortCountBtn].forEach(b => b.disabled = false);
   setStatus(`${assets.length} NFTs across ${Object.keys(groups).length} collection(s).`);
 
   // Covers/rarity the Worker couldn't resolve in time for this response
@@ -343,6 +375,31 @@ async function loadWallet(address){
   if(json.pendingBackfill > 0){
     pollForBackfillUpdates(address);
   }
+
+  // Not awaited — runs in the background so the grid is interactive right
+  // away (sortable by held count, "Highest Floor First" just does nothing
+  // useful until values land). Only fetches each collection's overall
+  // floor (one Magic Eden call each, paced) rather than a per-rarity
+  // listings scan — that's the slow part on the detail page and isn't
+  // needed just to rank collections against each other.
+  loadFloorPrices(address, assets.length, Object.keys(groups).length);
+}
+
+async function loadFloorPrices(address, totalAssets, totalCollections){
+  const keys = Object.keys(groups);
+  let done = 0;
+  for(const key of keys){
+    if(walletInputEl.value.trim() !== address) return; // a different wallet's been loaded since — abandon
+    const g = groups[key];
+    const symbol = await resolveMESymbol(g.items[0].mint);
+    g.symbol = symbol;
+    g.floor = symbol ? await fetchOverallFloor(symbol) : null;
+    done++;
+    setStatus(`${totalAssets} NFTs across ${totalCollections} collection(s). Floor prices: ${done}/${totalCollections}…`);
+    updatePriceForCard(key, g.floor);
+    await sleep(LOOKUP_PACE_MS);
+  }
+  setStatus(`${totalAssets} NFTs across ${totalCollections} collection(s). Done.`);
 }
 
 // Merges freshly-resolved image/attributes into the *existing* item
@@ -392,8 +449,33 @@ async function pollForBackfillUpdates(address){
   }
 }
 
+// Unresolved (undefined, floor loop hasn't reached it yet) and
+// no-ME-data (null) collections both sort to the bottom under
+// floor-desc, falling back to held count as the tiebreak — this is what
+// makes clicking "Highest Floor First" the moment the page loads (before
+// any floor data has arrived) safe: everything ties at -Infinity and the
+// tiebreak reproduces the old count-only order until real prices land.
+function sortedKeys(){
+  const keys = Object.keys(groups);
+  if(sortMode === 'floor-desc'){
+    return keys.sort((a, b) => {
+      const va = typeof groups[a].floor === 'number' ? groups[a].floor : -Infinity;
+      const vb = typeof groups[b].floor === 'number' ? groups[b].floor : -Infinity;
+      if(vb !== va) return vb - va;
+      return groups[b].items.length - groups[a].items.length;
+    });
+  }
+  return keys.sort((a, b) => groups[b].items.length - groups[a].items.length);
+}
+
+function floorText(floor){
+  if(floor === undefined) return 'floor: …';
+  if(floor === null) return 'floor: no ME data';
+  return `floor: ${floor.toFixed(4)} SOL`;
+}
+
 function renderCollections(){
-  const keys = Object.keys(groups).sort((a, b) => groups[b].items.length - groups[a].items.length);
+  const keys = sortedKeys();
   collectionsViewEl.innerHTML = keys.map(key => {
     const g = groups[key];
     const distinctComics = new Set(g.items.map(i => cleanTitle(i.name) || i.mint)).size;
@@ -404,6 +486,7 @@ function renderCollections(){
         <div class="body">
           <div class="name">${esc(g.name)}</div>
           <div class="count">${distinctComics} comic${distinctComics !== 1 ? 's' : ''} &middot; ${g.items.length} cop${g.items.length !== 1 ? 'ies' : 'y'} owned</div>
+          <div class="floor">${floorText(g.floor)}</div>
           <div class="arrow">See rarities &amp; prices &#8594;</div>
         </div>
       </button>
@@ -414,6 +497,24 @@ function renderCollections(){
     btn.addEventListener('click', () => openCollection(btn.dataset.key));
   });
 }
+
+// Targeted patch (not a full renderCollections() rebuild) so cards don't
+// jump around or flicker every ~900ms as prices trickle in — visible
+// order only changes when the visitor (re-)clicks a sort pill, same
+// pattern as wallet.html's updatePriceForGroup.
+function updatePriceForCard(key, floor){
+  const card = [...collectionsViewEl.querySelectorAll('.coll-card')].find(c => c.dataset.key === key);
+  if(!card) return;
+  const floorEl = card.querySelector('.floor');
+  if(floorEl) floorEl.textContent = floorText(floor);
+}
+
+function setSortButtons(){
+  sortFloorBtn.classList.toggle('active', sortMode === 'floor-desc');
+  sortCountBtn.classList.toggle('active', sortMode === 'count-desc');
+}
+sortFloorBtn.addEventListener('click', () => { sortMode = 'floor-desc'; setSortButtons(); renderCollections(); });
+sortCountBtn.addEventListener('click', () => { sortMode = 'count-desc'; setSortButtons(); renderCollections(); });
 
 function rarityClass(label){
   return label ? 'rarity-' + label.toLowerCase() : 'rarity-none';
@@ -435,17 +536,28 @@ async function openCollection(key){
   detailViewEl.style.display = 'block';
   detailTitleEl.textContent = g.name;
   comicsListEl.innerHTML = '';
-  setStatus('Resolving Magic Eden symbol…');
 
-  const symbol = await resolveMESymbol(g.items[0].mint);
-  let rarityFloors = {};
-  let overallFloor = null;
-  if(symbol){
-    setStatus('Fetching current listings…');
-    [rarityFloors, overallFloor] = await Promise.all([
-      fetchListingsRarityFloors(symbol),
-      fetchOverallFloor(symbol),
-    ]);
+  let symbol, overallFloor, rarityFloors = {};
+  if(g.floor !== undefined){
+    // The top-level floor-price loop already resolved this collection's
+    // symbol and overall floor — reuse both instead of re-fetching them.
+    symbol = g.symbol;
+    overallFloor = g.floor;
+    if(symbol){
+      setStatus('Fetching current listings…');
+      rarityFloors = await fetchListingsRarityFloors(symbol);
+    }
+  } else {
+    setStatus('Resolving Magic Eden symbol…');
+    symbol = await resolveMESymbol(g.items[0].mint);
+    overallFloor = null;
+    if(symbol){
+      setStatus('Fetching current listings…');
+      [rarityFloors, overallFloor] = await Promise.all([
+        fetchListingsRarityFloors(symbol),
+        fetchOverallFloor(symbol),
+      ]);
+    }
   }
 
   currentDetailKey = key;
