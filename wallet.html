@@ -229,7 +229,7 @@
   </div>
   <div class="control-group">
     <span class="control-label">Sort</span>
-    <button class="pill active" id="sort-default" disabled>Recently Added</button>
+    <button class="pill active" id="sort-default" disabled title="Ranked by Magic Eden purchase date where known. Items with no purchase on record (airdrops, migrations, or buys older than the recent-activity window checked) sort last.">Recently Added</button>
     <button class="pill" id="sort-price" disabled>Highest Value First</button>
   </div>
 </div>
@@ -256,6 +256,8 @@ const ME_BASE = ME_PROXY_BASE + "/v2";
 const WALLET_KEY = 'zurcovers_wallet';
 const SOL_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const LOOKUP_PACE_MS = 900; // same pacing discover.html uses against Magic Eden's per-minute rate limit
+const ACTIVITY_PAGE_SIZE = 100;
+const ACTIVITY_MAX_PAGES = 10; // caps at 1000 most-recent activity events, same as activity.html
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -281,6 +283,7 @@ let flatCards = [];
 let groupMode = 'collection'; // 'collection' | 'rarity'
 let sortMode = 'default';     // 'default' | 'price-desc'
 let searchQuery = '';
+let purchaseTimes = new Map(); // mint -> blockTime of most recent Magic Eden buy by this wallet
 
 function setStatus(msg, isErr){
   statusEl.innerHTML = (isErr ? '' : '<span class="dot"></span>') + msg;
@@ -317,6 +320,27 @@ async function resolveMESymbol(mintAddress){
   }catch(e){
     return null;
   }
+}
+
+// Best-effort — a wallet with no Magic Eden buy history (pure airdrops/
+// migrations) or one whose purchases fall outside the 1000-event window
+// just gets no "Recently Added" data and default sort silently falls back
+// to whatever order the assets came back in, rather than failing the load.
+async function fetchAllActivities(address){
+  let activities = [];
+  for(let page = 0; page < ACTIVITY_MAX_PAGES; page++){
+    try{
+      const res = await fetch(`${ME_BASE}/wallets/${address}/activities?offset=${page * ACTIVITY_PAGE_SIZE}&limit=${ACTIVITY_PAGE_SIZE}`);
+      if(!res.ok) break;
+      const batch = await res.json();
+      if(!Array.isArray(batch) || batch.length === 0) break;
+      activities = activities.concat(batch);
+      if(batch.length < ACTIVITY_PAGE_SIZE) break;
+    }catch(e){
+      break;
+    }
+  }
+  return activities;
 }
 
 async function fetchFloorPrice(symbol){
@@ -375,12 +399,26 @@ async function loadWallet(address){
 
   let json;
   try{
-    const res = await fetch(`${ME_BASE}/wallet-assets?address=${encodeURIComponent(address)}`);
+    // Fetched in parallel with the purchase-activity lookup below (not
+    // sequential) so the accurate "recently added" default order doesn't
+    // cost any extra wall-clock time on top of the assets fetch itself.
+    const [res, activities] = await Promise.all([
+      fetch(`${ME_BASE}/wallet-assets?address=${encodeURIComponent(address)}`),
+      fetchAllActivities(address),
+    ]);
     if(!res.ok){
       const errJson = await res.json().catch(() => ({}));
       throw new Error(errJson.error === 'rate_limited' ? 'Too many lookups from here right now — try again in a bit.' : `HTTP ${res.status}`);
     }
     json = await res.json();
+
+    purchaseTimes = new Map();
+    for(const act of activities){
+      if((act.type === 'buyNow' || act.type === 'acceptBid') && act.buyer === address && act.tokenMint){
+        const t = act.blockTime || 0;
+        if(!purchaseTimes.has(act.tokenMint) || t > purchaseTimes.get(act.tokenMint)) purchaseTimes.set(act.tokenMint, t);
+      }
+    }
   }catch(e){
     setStatus('Could not load that wallet: ' + e.message, true);
     return;
@@ -514,12 +552,20 @@ function cleanTitle(name){
     .trim();
 }
 
+// acquiredAt tracks the MOST RECENT purchase timestamp among all mints
+// collapsed into this card (not just the representative's) — buying a
+// second copy of a comic you already hold should bump that card back
+// toward the top of "Recently Added", not get lost behind whichever
+// mint happened to be seen first while grouping.
 function groupByName(items){
   const byName = new Map();
   for(const item of items){
     const k = cleanTitle(item.name) || item.mint;
-    if(!byName.has(k)) byName.set(k, { representative: item, count: 0 });
-    byName.get(k).count++;
+    if(!byName.has(k)) byName.set(k, { representative: item, count: 0, acquiredAt: undefined });
+    const entry = byName.get(k);
+    entry.count++;
+    const t = purchaseTimes.get(item.mint);
+    if(typeof t === 'number' && (entry.acquiredAt === undefined || t > entry.acquiredAt)) entry.acquiredAt = t;
   }
   return [...byName.values()];
 }
@@ -584,7 +630,7 @@ function buildFlatCards(){
   flatCards = [];
   for(const key of Object.keys(allGroups)){
     const g = allGroups[key];
-    for(const { representative: item, count } of groupByName(g.items)){
+    for(const { representative: item, count, acquiredAt } of groupByName(g.items)){
       flatCards.push({
         key,
         collName: g.name,
@@ -593,6 +639,7 @@ function buildFlatCards(){
         mint: item.mint,
         count,
         rarity: normalizeRarity(item.attributes),
+        acquiredAt,
       });
     }
   }
@@ -715,8 +762,23 @@ function renderAll(){
     // ranking with a placeholder value.
     const sectionTotal = (s) => s.cards.reduce((sum, c) => sum + (c._price.value ?? 0) * c.count, 0);
     sectionList.sort((a, b) => sectionTotal(b) - sectionTotal(a));
-  } else if(groupMode === 'rarity'){
-    sectionList.sort((a, b) => RARITY_SORT_ORDER.indexOf(a.label) - RARITY_SORT_ORDER.indexOf(b.label));
+  } else {
+    // Default mode: genuinely "recently added" now, using each card's
+    // most recent Magic Eden purchase timestamp (see purchaseTimes/
+    // groupByName) rather than whatever arbitrary order Helius happened
+    // to return assets in. Cards with no known purchase (airdrops,
+    // migrations, purchases older than the activity window fetchAllActivities
+    // covers) sort last within their section rather than being treated as
+    // "just bought."
+    for(const s of sectionList){
+      s.cards.sort((a, b) => (b.acquiredAt ?? -Infinity) - (a.acquiredAt ?? -Infinity));
+    }
+    if(groupMode === 'rarity'){
+      sectionList.sort((a, b) => RARITY_SORT_ORDER.indexOf(a.label) - RARITY_SORT_ORDER.indexOf(b.label));
+    } else {
+      const sectionMostRecent = (s) => s.cards.reduce((max, c) => Math.max(max, c.acquiredAt ?? -Infinity), -Infinity);
+      sectionList.sort((a, b) => sectionMostRecent(b) - sectionMostRecent(a));
+    }
   }
 
   let html = '';
