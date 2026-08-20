@@ -155,7 +155,10 @@ html, body { width:100%; height:100%; background:var(--ink); overflow:hidden; }
 #masthead { padding:24px 32px 12px; display:flex; align-items:flex-start; justify-content:space-between; gap:24px; }
 .mh-left { min-width:0; }
 .mh-name { font-family:'Cormorant Garamond',serif; font-size:clamp(1.5rem,3.6vw,2.5rem); font-weight:300; color:#fff; letter-spacing:.02em; line-height:1.1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:58vw; }
-.mh-coll { margin-top:6px; font-family:'DM Mono',monospace; font-size:.6rem; letter-spacing:.26em; color:var(--gold); text-transform:uppercase; }
+.mh-coll-row { margin-top:6px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.mh-coll { font-family:'DM Mono',monospace; font-size:.6rem; letter-spacing:.26em; color:var(--gold); text-transform:uppercase; }
+.mh-dot { font-family:'DM Mono',monospace; font-size:.6rem; color:rgba(255,255,255,0.2); }
+.mh-floor { font-family:'DM Mono',monospace; font-size:.6rem; letter-spacing:.05em; color:rgba(255,255,255,0.55); white-space:nowrap; }
 .mh-right { flex-shrink:0; display:flex; align-items:center; gap:16px; }
 .mh-counter { font-family:'DM Mono',monospace; font-size:.5rem; letter-spacing:.18em; color:rgba(255,255,255,0.32); white-space:nowrap; }
 .mh-link { font-family:'DM Mono',monospace; font-size:.5rem; letter-spacing:.18em; text-transform:uppercase; color:rgba(143,111,232,0.65); text-decoration:none; border:1px solid rgba(143,111,232,0.28); padding:7px 13px; border-radius:2px; white-space:nowrap; transition:color .2s,border-color .2s; }
@@ -285,7 +288,11 @@ html, body { width:100%; height:100%; background:var(--ink); overflow:hidden; }
     <div id="masthead">
       <div class="mh-left">
         <div class="mh-name" id="m-name"></div>
-        <div class="mh-coll" id="m-coll"></div>
+        <div class="mh-coll-row">
+          <div class="mh-coll" id="m-coll"></div>
+          <div class="mh-dot">&middot;</div>
+          <div class="mh-floor" id="m-floor"></div>
+        </div>
       </div>
       <div class="mh-right">
         <div class="rarity-badge" id="m-rarity" style="display:none"></div>
@@ -343,6 +350,7 @@ var bgEl      = document.getElementById('bg');
 var artEl     = document.getElementById('art');
 var mName     = document.getElementById('m-name');
 var mColl     = document.getElementById('m-coll');
+var mFloor    = document.getElementById('m-floor');
 var mTraits   = document.getElementById('m-traits');
 var mRarity   = document.getElementById('m-rarity');
 var mMeLink   = document.getElementById('m-melink');
@@ -620,6 +628,65 @@ function parseRarityValue(value) {
   return { key: key, pct: match ? parseFloat(match[2]) : null };
 }
 
+// Floor price per collection, same two calls wallet.html uses
+// (resolve a held mint's ME symbol, then that collection's /stats floor
+// in lamports). Cached by collection name so shuffling back into a
+// collection already seen this session doesn't refetch it.
+var floorCache = {}; // collection name -> SOL floor (number) | null (no ME data)
+
+async function resolveMESymbol(mintAddress) {
+  try {
+    var res = await fetch(ME_PROXY_BASE + '/v2/tokens/' + mintAddress);
+    if (!res.ok) return null;
+    var data = await res.json();
+    var collectionField = data && data.collection;
+    if (typeof collectionField === 'string') return collectionField;
+    return (collectionField && (collectionField.symbol || collectionField.name)) || (data && data.collectionSymbol) || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function fetchFloorPrice(symbol) {
+  try {
+    var res = await fetch(ME_PROXY_BASE + '/v2/collections/' + symbol + '/stats');
+    if (!res.ok) return null;
+    var data = await res.json();
+    return (data && typeof data.floorPrice === 'number') ? data.floorPrice / 1e9 : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function renderFloor(floor) {
+  mFloor.textContent = (typeof floor === 'number') ? (floor.toFixed(4) + ' SOL floor') : 'no ME data';
+}
+
+// Fire-and-forget from show() below — never blocks the cover from
+// displaying. Guards against a stale response landing after the visitor
+// has already moved on to a different collection by checking mColl's
+// current text (set synchronously in show()) still matches what this
+// lookup was for before writing anything to the DOM.
+function updateFloorDisplay(n) {
+  var collKey = n.collection; // matches mColl.textContent exactly, incl. '' for uncategorized items — see the guard below
+  if (Object.prototype.hasOwnProperty.call(floorCache, collKey)) {
+    renderFloor(floorCache[collKey]);
+    return;
+  }
+  mFloor.textContent = '…';
+  resolveMESymbol(n.mint).then(function(symbol) {
+    if (!symbol) {
+      floorCache[collKey] = null;
+      if (mColl.textContent === collKey) renderFloor(null);
+      return;
+    }
+    return fetchFloorPrice(symbol).then(function(floor) {
+      floorCache[collKey] = floor;
+      if (mColl.textContent === collKey) renderFloor(floor);
+    });
+  });
+}
+
 function show(i) {
   var n = nfts[i];
   if (!n) return;
@@ -642,6 +709,7 @@ function show(i) {
   bgEl.style.backgroundImage = n.image ? ('url(' + n.image + ')') : 'none';
   mName.textContent = n.name;
   mColl.textContent = n.collection;
+  updateFloorDisplay(n);
 
   var allAttrs = n.attributes || [];
   var rarityAttr = allAttrs.find(function(a) { return /^rarity$/i.test(a.trait_type || ''); });
