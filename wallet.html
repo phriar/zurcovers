@@ -92,6 +92,21 @@
   .portfolio-value b{ color:#fbbf24; font-weight:500; }
   .portfolio-value .note{ display:block; margin-top:2px; font-size:.66rem; color:rgba(255,255,255,0.4); }
 
+  .packs-banner{
+    position:relative; z-index:1; margin:0 32px 16px; padding:14px 18px;
+    border:1px solid rgba(251,146,60,0.35); border-radius:4px; background:rgba(251,146,60,0.08);
+    font-size:.82rem; line-height:1.6; color:rgba(255,255,255,0.75); display:none;
+    align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+  }
+  .packs-banner b{ color:#fb923c; font-weight:500; }
+  .packs-banner button{
+    font-family:'DM Mono',monospace; font-size:.6rem; letter-spacing:.1em; text-transform:uppercase;
+    color:#fff; background:linear-gradient(135deg, #c2410c, #fb923c); border:1px solid rgba(251,146,60,0.5);
+    padding:8px 16px; border-radius:2px; cursor:pointer; transition:filter .15s; white-space:nowrap;
+  }
+  .packs-banner button:hover{ filter:brightness(1.12); }
+  .packs-banner button.active{ filter:brightness(0.8); }
+
   .search-row{ position:relative; z-index:1; padding:0 32px 16px; }
   .search-row input{
     width:100%; max-width:420px; background:rgba(0,0,0,0.5); border:1px solid var(--border); color:rgba(255,255,255,0.85);
@@ -137,6 +152,7 @@
   .rarity-rare       { color:var(--cyan); border-color:rgba(77,232,255,0.4); background:rgba(77,232,255,0.08); }
   .rarity-epic       { color:var(--gold); border-color:rgba(143,111,232,0.5); background:rgba(143,111,232,0.1); }
   .rarity-legendary  { color:#fbbf24; border-color:rgba(251,191,36,0.5); background:rgba(251,191,36,0.1); }
+  .pack-badge        { color:#fb923c; border-color:rgba(251,146,60,0.5); background:rgba(251,146,60,0.1); }
 
   #status{ position:relative; z-index:1; padding:16px 32px; font-size:.62rem; letter-spacing:.08em; color:rgba(255,255,255,0.35); text-transform:uppercase; }
   #status.err{ color:#e07a5f; }
@@ -216,6 +232,7 @@
 </div>
 
 <div class="portfolio-value" id="portfolio-value"></div>
+<div class="packs-banner" id="packs-banner" style="display:none"></div>
 
 <div class="search-row" id="search-row" style="display:none">
   <input type="text" id="search-input" placeholder="Search your wallet, e.g. &quot;Absolute Batman&quot;" autocomplete="off">
@@ -265,6 +282,7 @@ const statusEl = document.getElementById('status');
 const caveatEl = document.getElementById('caveat');
 const gridEl = document.getElementById('grid');
 const portfolioValueEl = document.getElementById('portfolio-value');
+const packsBannerEl = document.getElementById('packs-banner');
 const walletInputEl = document.getElementById('wallet-input');
 const loadBtnEl = document.getElementById('load-btn');
 const searchRowEl = document.getElementById('search-row');
@@ -283,6 +301,7 @@ let flatCards = [];
 let groupMode = 'collection'; // 'collection' | 'rarity'
 let sortMode = 'default';     // 'default' | 'price-desc'
 let searchQuery = '';
+let packsOnlyFilter = false;
 let purchaseTimes = new Map(); // mint -> blockTime of most recent Magic Eden buy by this wallet
 
 function setStatus(msg, isErr){
@@ -305,6 +324,15 @@ function normalizeRarity(attributes){
   const cleaned = (match ? match[1] : raw).trim().toLowerCase();
   const key = RARITY_ALIASES[cleaned];
   return key ? RARITY_LABELS[key] : null;
+}
+
+// Migrated-over unopened packs (confirmed live: "Item Type" = "Pack",
+// no "Rarity" trait yet since they haven't been opened) share the exact
+// same collection and comic title as the opened copies of that issue —
+// without this check they'd silently merge into an opened comic's ×N
+// count via groupByName below, making them invisible.
+function isPackItem(item){
+  return (item.attributes || []).some(a => /^item type$/i.test(a?.trait_type || '') && /^pack$/i.test(String(a?.value || '').trim()));
 }
 const RARITY_SORT_ORDER = ['Legendary', 'Epic', 'Rare', 'Uncommon', 'Common', 'No rarity data'];
 
@@ -386,12 +414,15 @@ async function loadWallet(address){
   caveatEl.style.display = 'none';
   portfolioValueEl.style.display = 'none';
   portfolioValueEl.innerHTML = '';
+  packsBannerEl.style.display = 'none';
+  packsBannerEl.innerHTML = '';
   searchRowEl.style.display = 'none';
   gapSummaryEl.style.display = 'none';
   controlsRowEl.style.display = 'none';
   groupMode = 'collection';
   sortMode = 'default';
   searchQuery = '';
+  packsOnlyFilter = false;
   searchInputEl.value = '';
   setGroupButtons();
   setSortButtons();
@@ -444,6 +475,7 @@ async function loadWallet(address){
   searchRowEl.style.display = 'block';
   renderAll(); // one full paint, prices start as "…" — resolved prices patch in place below via data-group/data-price, never a second full rebuild during loading
   updatePortfolioValue();
+  updatePacksBanner();
   // Controls unlock immediately rather than waiting for every collection
   // to resolve — with a wallet spanning 100+ collections, that wait can
   // run into minutes. Sort by "Highest Value First" works correctly on
@@ -528,6 +560,7 @@ async function pollForBackfillUpdates(address){
       const freshJson = await res.json();
       if(mergeUpdatedAssets(freshJson.assets || [])){
         buildFlatCards();
+        updatePacksBanner();
         renderAll();
       }
       if(!freshJson.pendingBackfill) return; // fully settled, no need to keep checking
@@ -560,8 +593,11 @@ function cleanTitle(name){
 function groupByName(items){
   const byName = new Map();
   for(const item of items){
-    const k = cleanTitle(item.name) || item.mint;
-    if(!byName.has(k)) byName.set(k, { representative: item, count: 0, acquiredAt: undefined });
+    const packFlag = isPackItem(item);
+    // Same base title as an opened copy of this issue would clean down
+    // to — the pack suffix keeps the two from collapsing into one group.
+    const k = (cleanTitle(item.name) || item.mint) + (packFlag ? ' — unopened pack' : '');
+    if(!byName.has(k)) byName.set(k, { representative: item, count: 0, acquiredAt: undefined, isPack: packFlag });
     const entry = byName.get(k);
     entry.count++;
     const t = purchaseTimes.get(item.mint);
@@ -623,6 +659,29 @@ function updatePortfolioValue(){
     (notes.length ? `<span class="note">${notes.join(' · ')}</span>` : '');
 }
 
+// Depends only on flatCards' isPack flags, not floor prices — called
+// once after buildFlatCards() (initial load and any backfill-driven
+// rebuild), not on every price tick during the loop above.
+function updatePacksBanner(){
+  const packCards = flatCards.filter(c => c.isPack);
+  if(packCards.length === 0){
+    packsBannerEl.style.display = 'none';
+    packsOnlyFilter = false;
+    return;
+  }
+  const totalPacks = packCards.reduce((sum, c) => sum + c.count, 0);
+  const collectionCount = new Set(packCards.map(c => c.key)).size;
+  packsBannerEl.style.display = 'flex';
+  packsBannerEl.innerHTML =
+    `&#128230; <b>${totalPacks} unopened pack${totalPacks !== 1 ? 's' : ''}</b> across ${collectionCount} collection${collectionCount !== 1 ? 's' : ''} — migrated over, not yet opened.` +
+    `<button id="packs-toggle-btn" class="${packsOnlyFilter ? 'active' : ''}">${packsOnlyFilter ? 'Show Everything' : 'View Only Packs'}</button>`;
+  document.getElementById('packs-toggle-btn').addEventListener('click', () => {
+    packsOnlyFilter = !packsOnlyFilter;
+    updatePacksBanner();
+    renderAll();
+  });
+}
+
 // Flat, price-independent card list — built once right after assets
 // load (not on every render), since which title/rarity/count a card
 // represents never changes, only its price display does.
@@ -630,7 +689,7 @@ function buildFlatCards(){
   flatCards = [];
   for(const key of Object.keys(allGroups)){
     const g = allGroups[key];
-    for(const { representative: item, count, acquiredAt } of groupByName(g.items)){
+    for(const { representative: item, count, acquiredAt, isPack } of groupByName(g.items)){
       flatCards.push({
         key,
         collName: g.name,
@@ -640,6 +699,7 @@ function buildFlatCards(){
         count,
         rarity: normalizeRarity(item.attributes),
         acquiredAt,
+        isPack,
       });
     }
   }
@@ -722,9 +782,8 @@ function computeGapSummary(cards){
 // though search can be used while prices are still loading.
 function renderAll(){
   const q = searchQuery.trim().toLowerCase();
-  const visibleCards = q
-    ? flatCards.filter(c => c.collName.toLowerCase().includes(q) || c.title.toLowerCase().includes(q))
-    : flatCards;
+  let visibleCards = packsOnlyFilter ? flatCards.filter(c => c.isPack) : flatCards;
+  if(q) visibleCards = visibleCards.filter(c => c.collName.toLowerCase().includes(q) || c.title.toLowerCase().includes(q));
 
   if(q){
     const gapLines = computeGapSummary(visibleCards);
@@ -795,7 +854,9 @@ function renderAll(){
           <div class="body">
             <div class="sub">${esc(c.collName)}</div>
             <div class="name">${esc(c.title)}</div>
-            ${c.rarity ? `<div class="rarity-badge ${rarityClass(c.rarity)}">${esc(c.rarity)}</div>` : ''}
+            ${c.isPack
+              ? `<div class="rarity-badge pack-badge">&#128230; Unopened Pack</div>`
+              : (c.rarity ? `<div class="rarity-badge ${rarityClass(c.rarity)}">${esc(c.rarity)}</div>` : '')}
             <div class="price ${c._price.value === null ? 'unavailable' : ''}" data-price>${c._price.text}</div>
             <div class="floor-label">${groupMode === 'rarity' && c.rarity ? 'this rarity, lowest listed' : 'collection floor'}</div>
             <div class="me-tag">View on Magic Eden &#8599;</div>

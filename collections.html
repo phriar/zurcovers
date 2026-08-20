@@ -83,6 +83,20 @@
     font-size:.72rem; line-height:1.7; color:rgba(255,255,255,0.5);
   }
 
+  .packs-banner{
+    position:relative; z-index:1; margin:0 32px 16px; padding:14px 18px;
+    border:1px solid rgba(251,146,60,0.35); border-radius:4px; background:rgba(251,146,60,0.08);
+    font-size:.82rem; line-height:1.6; color:rgba(255,255,255,0.75); display:none;
+    align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+  }
+  .packs-banner b{ color:#fb923c; font-weight:500; }
+  .packs-banner button{
+    font-family:'DM Mono',monospace; font-size:.6rem; letter-spacing:.1em; text-transform:uppercase;
+    color:#fff; background:linear-gradient(135deg, #c2410c, #fb923c); border:1px solid rgba(251,146,60,0.5);
+    padding:8px 16px; border-radius:2px; cursor:pointer; transition:filter .15s; white-space:nowrap;
+  }
+  .packs-banner button:hover{ filter:brightness(1.12); }
+
   .controls-row{
     position:relative; z-index:1; padding:0 32px 16px; display:flex; gap:18px; flex-wrap:wrap;
   }
@@ -159,6 +173,7 @@
   .rarity-epic       { color:var(--gold); border-color:rgba(143,111,232,0.5); background:rgba(143,111,232,0.1); }
   .rarity-legendary  { color:#fbbf24; border-color:rgba(251,191,36,0.5); background:rgba(251,191,36,0.1); }
   .rarity-none       { color:rgba(255,255,255,0.5); border-color:var(--border); background:rgba(255,255,255,0.03); }
+  .pack-badge        { color:#fb923c; border-color:rgba(251,146,60,0.5); background:rgba(251,146,60,0.1); }
   .rarity-owned{ font-family:'DM Mono',monospace; font-size:.66rem; color:rgba(255,255,255,0.4); }
   .rarity-price{ font-family:'DM Mono',monospace; font-size:.72rem; color:rgba(255,255,255,0.85); }
   .rarity-price.unavailable{ color:rgba(255,255,255,0.3); }
@@ -205,6 +220,7 @@
 <div class="caveat" id="caveat" style="display:none">
   Small/unfamiliar collection entries in a wallet are often unsolicited airdrop NFTs, not anything you acquired — Magic Eden simply not recognizing one is common and not itself a red flag. Never interact with anything claiming you need to "claim" a reward.
 </div>
+<div class="packs-banner" id="packs-banner" style="display:none"></div>
 
 <div id="collections-view" class="grid"></div>
 
@@ -231,6 +247,7 @@ const SOL_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 const statusEl = document.getElementById('status');
 const caveatEl = document.getElementById('caveat');
+const packsBannerEl = document.getElementById('packs-banner');
 const controlsRowEl = document.getElementById('controls-row');
 const sortFloorBtn = document.getElementById('sort-floor');
 const sortCountBtn = document.getElementById('sort-count');
@@ -277,6 +294,15 @@ function normalizeRarity(attributes){
   const cleaned = (match ? match[1] : raw).trim().toLowerCase();
   const key = RARITY_ALIASES[cleaned];
   return key ? RARITY_LABELS[key] : null;
+}
+
+// Migrated-over unopened packs (confirmed live: "Item Type" = "Pack", no
+// "Rarity" trait yet since they haven't been opened) share the exact same
+// collection and comic title as opened copies of that issue — without
+// this check they'd land in the same "no rarity data" bucket as any other
+// unrated item, indistinguishable from something you already opened.
+function isPackItem(item){
+  return (item.attributes || []).some(a => /^item type$/i.test(a?.trait_type || '') && /^pack$/i.test(String(a?.value || '').trim()));
 }
 
 async function resolveMESymbol(mintAddress){
@@ -332,6 +358,8 @@ async function loadWallet(address){
   detailViewEl.style.display = 'none';
   collectionsViewEl.style.display = 'grid';
   caveatEl.style.display = 'none';
+  packsBannerEl.style.display = 'none';
+  packsBannerEl.innerHTML = '';
   controlsRowEl.style.display = 'none';
   [sortFloorBtn, sortCountBtn].forEach(b => b.disabled = true);
   setStatus('Fetching wallet assets…');
@@ -364,6 +392,7 @@ async function loadWallet(address){
 
   caveatEl.style.display = 'block';
   renderCollections();
+  updatePacksBanner();
   controlsRowEl.style.display = 'flex';
   [sortFloorBtn, sortCountBtn].forEach(b => b.disabled = false);
   setStatus(`${assets.length} NFTs across ${Object.keys(groups).length} collection(s).`);
@@ -441,6 +470,7 @@ async function pollForBackfillUpdates(address){
         } else {
           renderCollections();
         }
+        updatePacksBanner();
       }
       if(!freshJson.pendingBackfill) return; // fully settled, no need to keep checking
     }catch(e){
@@ -515,6 +545,79 @@ function setSortButtons(){
 }
 sortFloorBtn.addEventListener('click', () => { sortMode = 'floor-desc'; setSortButtons(); renderCollections(); });
 sortCountBtn.addEventListener('click', () => { sortMode = 'count-desc'; setSortButtons(); renderCollections(); });
+
+// Migrated-over unopened packs are scattered one or two at a time across
+// dozens of collections (confirmed live: 29 packs across 20 different
+// collections in one test wallet) — a per-collection badge alone still
+// means clicking through every collection to spot them. This banner is
+// the "quickly see what packs I have" answer: one flat list of every
+// collection that has any, sourced straight from groups (no extra
+// Magic Eden calls needed).
+function updatePacksBanner(){
+  let totalPacks = 0;
+  const collectionsWithPacks = new Set();
+  for(const key of Object.keys(groups)){
+    const packCount = groups[key].items.filter(isPackItem).length;
+    if(packCount > 0){
+      totalPacks += packCount;
+      collectionsWithPacks.add(key);
+    }
+  }
+  if(totalPacks === 0){
+    packsBannerEl.style.display = 'none';
+    return;
+  }
+  packsBannerEl.style.display = 'flex';
+  packsBannerEl.innerHTML =
+    `&#128230; <b>${totalPacks} unopened pack${totalPacks !== 1 ? 's' : ''}</b> across ${collectionsWithPacks.size} collection${collectionsWithPacks.size !== 1 ? 's' : ''} — migrated over, not yet opened.` +
+    `<button id="packs-view-btn">View Unopened Packs</button>`;
+  document.getElementById('packs-view-btn').addEventListener('click', openPacksView);
+}
+
+function openPacksView(){
+  const rows = [];
+  for(const key of Object.keys(groups)){
+    const g = groups[key];
+    const packItems = g.items.filter(isPackItem);
+    if(packItems.length === 0) continue;
+    rows.push({
+      key,
+      name: g.name,
+      count: packItems.length,
+      image: packItems.find(i => i.image)?.image || g.items.find(i => i.image)?.image || '',
+    });
+  }
+  rows.sort((a, b) => b.count - a.count);
+
+  savedGridScrollY = window.scrollY;
+  collectionsViewEl.style.display = 'none';
+  detailViewEl.style.display = 'block';
+  window.scrollTo(0, 0);
+  currentDetailKey = null; // not a normal collection view — background repoll just refreshes the (hidden) grid instead
+  detailTitleEl.textContent = 'Unopened Packs';
+
+  comicsListEl.innerHTML = rows.map(r => `
+    <div class="comic-row">
+      ${r.image ? `<img src="${esc(r.image)}" loading="lazy" onerror="this.style.opacity=0.2">` : `<div class="no-preview">No preview</div>`}
+      <div class="info">
+        <div class="name">${esc(r.name)}</div>
+        <div class="rarity-rows">
+          <div class="rarity-row">
+            <span class="rarity-badge pack-badge">&#128230; Unopened Pack</span>
+            <span class="rarity-owned">you own &times;${r.count}</span>
+            <a class="rarity-link" href="#" data-open-key="${esc(r.key)}">View Collection &#8594;</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  `).join('');
+  comicsListEl.querySelectorAll('[data-open-key]').forEach(a => {
+    a.addEventListener('click', (e) => { e.preventDefault(); openCollection(a.dataset.openKey); });
+  });
+
+  const total = rows.reduce((sum, r) => sum + r.count, 0);
+  setStatus(`${total} unopened pack(s) across ${rows.length} collection(s).`);
+}
 
 function rarityClass(label){
   return label ? 'rarity-' + label.toLowerCase() : 'rarity-none';
@@ -598,17 +701,22 @@ function renderComicsList(key, symbol){
     const title = cleanTitle(item.name) || item.mint;
     if(!byTitle.has(title)) byTitle.set(title, { representative: item, rarities: new Map() });
     const entry = byTitle.get(title);
-    const rarity = normalizeRarity(item.attributes); // null = no rarity trait on this collection
+    // Unopened packs get their own bucket ('__pack__') distinct from
+    // null (no-rarity-trait) so they never blend into a generic
+    // "No rarity data" row — see isPackItem() above.
+    const rarity = isPackItem(item) ? '__pack__' : normalizeRarity(item.attributes);
     if(!entry.rarities.has(rarity)) entry.rarities.set(rarity, { count: 0, mint: item.mint });
     entry.rarities.get(rarity).count++;
   }
 
   comicsListEl.innerHTML = [...byTitle.entries()].map(([title, entry]) => {
     const rarityRows = [...entry.rarities.entries()].map(([rarity, info]) => {
+      const isPack = rarity === '__pack__';
       let priceHtml;
-      if(rarity === null){
-        // This collection doesn't use rarity tiers — the overall floor
-        // is the right single number, not a per-rarity one.
+      if(isPack || rarity === null){
+        // This collection doesn't use rarity tiers (or this row is an
+        // unopened pack, which has no rarity yet either way) — the
+        // overall floor is the right single number, not a per-rarity one.
         priceHtml = overallFloor !== null
           ? `<span class="rarity-price">${overallFloor.toFixed(4)} SOL floor</span>`
           : `<span class="rarity-price unavailable">no ME data</span>`;
@@ -619,9 +727,11 @@ function renderComicsList(key, symbol){
           : `<span class="rarity-price unavailable">no active ${esc(rarity)} listings</span>`;
       }
       const pdpUrl = `https://magiceden.io/item-details/${info.mint}`;
+      const badgeClass = isPack ? 'pack-badge' : rarityClass(rarity);
+      const badgeLabel = isPack ? '&#128230; Unopened Pack' : (rarity ? esc(rarity) : 'No rarity data');
       return `
         <div class="rarity-row">
-          <span class="rarity-badge ${rarityClass(rarity)}">${rarity ? esc(rarity) : 'No rarity data'}</span>
+          <span class="rarity-badge ${badgeClass}">${badgeLabel}</span>
           <span class="rarity-owned">you own &times;${info.count}</span>
           ${priceHtml}
           <a class="rarity-link" href="${esc(pdpUrl)}" target="_blank" rel="noopener">Magic Eden &#8599;</a>
