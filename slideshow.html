@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="manifest" href="site.webmanifest">
 <title>Slideshow — zurcovers</title>
-<meta name="description" content="Full-screen DC digital comic cover slideshow for any public Solana wallet, with NFT attributes shown at the bottom of each frame.">
+<meta name="description" content="Full-screen DC digital comic cover slideshow for any public Solana wallet, with collection floor price and NFT attributes shown at the top of each frame.">
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
@@ -140,20 +140,30 @@ html, body { width:100%; height:100%; background:var(--ink); overflow:hidden; }
 .nl-name { font-family:'Cormorant Garamond',serif; font-size:clamp(1rem,2.4vw,1.25rem); font-weight:300; color:rgba(255,255,255,0.72); flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .nl-arrow { font-family:'DM Mono',monospace; font-size:.8rem; color:rgba(255,255,255,0.1); opacity:.35; transition:opacity .15s,color .15s; flex-shrink:0; }
 
-/* FRAME */
+/* FRAME — masthead banner pinned to the top (title/collection/floor
+   price/rarity/counter/ME-link), a strip of trait chips running right
+   underneath it, and the cover filling the rest of the screen below.
+   Bottom is left almost entirely clear except for the thin progress
+   line, so the cover itself is what your eye lands on. */
 #frame { position:fixed; inset:0; display:none; }
 #frame.show { display:block; }
-#bg { position:absolute; inset:-40px; background-size:cover; background-position:center; filter:blur(60px) brightness(0.25) saturate(1.6); transition:background-image 1.2s ease; z-index:0; }
-#art-wrap { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; z-index:1; padding:48px 48px 110px; }
+#bg { position:absolute; inset:-40px; background-size:cover; background-position:center; filter:blur(60px) brightness(0.22) saturate(1.6); transition:background-image 1.2s ease; z-index:0; }
+#art-wrap { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; z-index:1; padding:168px 48px 56px; }
 #art { max-width:100%; max-height:100%; object-fit:contain; box-shadow:0 32px 80px rgba(0,0,0,0.7); transition:opacity .7s ease; display:block; }
 #art.fade { opacity:0; }
 
-#meta { position:absolute; bottom:0; left:0; width:100%; z-index:2; padding:60px 32px 28px; background:linear-gradient(transparent,rgba(0,0,0,0.72) 40%,rgba(0,0,0,0.88)); display:flex; align-items:flex-end; justify-content:space-between; gap:24px; transition:opacity .5s ease; }
-#meta.hide { opacity:0; }
-.meta-left { min-width:0; }
-.meta-name { font-family:'Cormorant Garamond',serif; font-size:clamp(1.4rem,3vw,2.2rem); font-weight:300; color:#fff; letter-spacing:.02em; line-height:1.1; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:70vw; }
-.meta-row { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
-.meta-coll { font-family:'DM Mono',monospace; font-size:.58rem; letter-spacing:.22em; color:var(--gold); text-transform:uppercase; }
+#top-bar { position:absolute; top:0; left:0; width:100%; z-index:2; background:linear-gradient(rgba(0,0,0,0.9),rgba(0,0,0,0.6) 75%,transparent); border-bottom:1px solid rgba(251,191,36,0.28); }
+#masthead { padding:24px 32px 12px; display:flex; align-items:flex-start; justify-content:space-between; gap:24px; }
+.mh-left { min-width:0; }
+.mh-name { font-family:'Cormorant Garamond',serif; font-size:clamp(1.5rem,3.6vw,2.5rem); font-weight:300; color:#fff; letter-spacing:.02em; line-height:1.1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:58vw; }
+.mh-coll-row { margin-top:6px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.mh-coll { font-family:'DM Mono',monospace; font-size:.6rem; letter-spacing:.26em; color:var(--gold); text-transform:uppercase; }
+.mh-dot { font-family:'DM Mono',monospace; font-size:.6rem; color:rgba(255,255,255,0.2); }
+.mh-floor { font-family:'DM Mono',monospace; font-size:.6rem; letter-spacing:.05em; color:rgba(255,255,255,0.55); white-space:nowrap; }
+.mh-right { flex-shrink:0; display:flex; align-items:center; gap:16px; }
+.mh-counter { font-family:'DM Mono',monospace; font-size:.5rem; letter-spacing:.18em; color:rgba(255,255,255,0.32); white-space:nowrap; }
+.mh-link { font-family:'DM Mono',monospace; font-size:.5rem; letter-spacing:.18em; text-transform:uppercase; color:rgba(143,111,232,0.65); text-decoration:none; border:1px solid rgba(143,111,232,0.28); padding:7px 13px; border-radius:2px; white-space:nowrap; transition:color .2s,border-color .2s; }
+.mh-link:hover { color:var(--gold); border-color:rgba(143,111,232,0.55); }
 
 .rarity-badge { font-family:'DM Mono',monospace; font-size:.5rem; letter-spacing:.14em; text-transform:uppercase; padding:3px 10px; border-radius:10px; border:1px solid; white-space:nowrap; }
 .rarity-common     { color:#c2c6cc; border-color:rgba(194,198,204,0.4); background:rgba(194,198,204,0.08); }
@@ -162,20 +172,16 @@ html, body { width:100%; height:100%; background:var(--ink); overflow:hidden; }
 .rarity-epic       { color:var(--gold); border-color:rgba(143,111,232,0.5); background:rgba(143,111,232,0.1); }
 .rarity-legendary  { color:#fbbf24; border-color:rgba(251,191,36,0.5); background:rgba(251,191,36,0.1); }
 
-.meta-traits { display:flex; gap:10px; flex-wrap:wrap; }
-.trait { border:1px solid rgba(255,255,255,0.1); border-radius:2px; padding:4px 10px; backdrop-filter:blur(4px); background:rgba(255,255,255,0.04); }
-.trait-type { font-family:'DM Mono',monospace; font-size:.42rem; letter-spacing:.18em; color:rgba(255,255,255,0.35); text-transform:uppercase; margin-bottom:1px; }
-.trait-val { font-family:'Cormorant Garamond',serif; font-size:.82rem; font-weight:400; color:rgba(255,255,255,0.8); }
-
-.meta-right { flex-shrink:0; display:flex; flex-direction:column; align-items:flex-end; gap:10px; }
-.me-link { font-family:'DM Mono',monospace; font-size:.52rem; letter-spacing:.2em; color:rgba(143,111,232,0.6); text-decoration:none; text-transform:uppercase; border:1px solid rgba(143,111,232,0.2); padding:6px 14px; border-radius:2px; transition:color .2s,border-color .2s; white-space:nowrap; }
-.me-link:hover { color:var(--gold); border-color:rgba(143,111,232,0.5); }
-.meta-counter { font-family:'DM Mono',monospace; font-size:.48rem; letter-spacing:.2em; color:rgba(255,255,255,0.18); }
+.trait-strip { display:flex; gap:10px; flex-wrap:nowrap; overflow-x:auto; padding:0 32px 18px; scrollbar-width:none; }
+.trait-strip::-webkit-scrollbar { display:none; }
+.trait { flex-shrink:0; border:1px solid rgba(255,255,255,0.1); border-radius:2px; padding:5px 11px; backdrop-filter:blur(4px); background:rgba(255,255,255,0.04); }
+.trait-type { font-family:'DM Mono',monospace; font-size:.42rem; letter-spacing:.18em; color:rgba(255,255,255,0.35); text-transform:uppercase; margin-bottom:1px; white-space:nowrap; }
+.trait-val { font-family:'Cormorant Garamond',serif; font-size:.82rem; font-weight:400; color:rgba(255,255,255,0.8); white-space:nowrap; }
 
 #progress { position:absolute; bottom:0; left:0; right:0; height:1px; background:rgba(255,255,255,0.06); z-index:3; }
 #progress-fill { height:100%; background:var(--gold); width:0%; transition:width linear; opacity:0.5; }
 
-#controls { position:absolute; top:16px; left:0; right:0; z-index:10; display:flex; justify-content:center; gap:6px; padding:0 16px; flex-wrap:wrap; opacity:0; transition:opacity .3s; pointer-events:none; }
+#controls { position:absolute; bottom:16px; left:0; right:0; z-index:10; display:flex; justify-content:center; gap:6px; padding:0 16px; flex-wrap:wrap; opacity:0; transition:opacity .3s; pointer-events:none; }
 #controls.visible { opacity:1; pointer-events:auto; }
 @media (hover:hover) { #frame:hover #controls { opacity:1; pointer-events:auto; } }
 .ctrl-btn { background:rgba(0,0,0,0.6); border:1px solid rgba(255,255,255,0.12); color:rgba(255,255,255,0.45); font-family:'DM Mono',monospace; font-size:.52rem; letter-spacing:.12em; padding:8px 14px; border-radius:2px; cursor:pointer; text-transform:uppercase; transition:all .15s; backdrop-filter:blur(10px); text-decoration:none; display:inline-flex; align-items:center; }
@@ -270,21 +276,25 @@ html, body { width:100%; height:100%; background:var(--ink); overflow:hidden; }
 <!-- FRAME -->
 <div id="frame">
   <div id="bg"></div>
-  <div id="art-wrap"><img id="art" src="" alt="" /></div>
-  <div id="meta">
-    <div class="meta-left">
-      <div class="meta-name" id="m-name"></div>
-      <div class="meta-row">
-        <div class="meta-coll" id="m-coll"></div>
-        <div class="rarity-badge" id="m-rarity" style="display:none"></div>
+  <div id="top-bar">
+    <div id="masthead">
+      <div class="mh-left">
+        <div class="mh-name" id="m-name"></div>
+        <div class="mh-coll-row">
+          <div class="mh-coll" id="m-coll"></div>
+          <div class="mh-dot">&middot;</div>
+          <div class="mh-floor" id="m-floor"></div>
+        </div>
       </div>
-      <div class="meta-traits" id="m-traits"></div>
+      <div class="mh-right">
+        <div class="rarity-badge" id="m-rarity" style="display:none"></div>
+        <div class="mh-counter" id="m-counter"></div>
+        <a class="mh-link me-link" id="m-melink" href="#" target="_blank" rel="noopener">Magic Eden &#8599;</a>
+      </div>
     </div>
-    <div class="meta-right">
-      <a class="me-link" id="m-melink" href="#" target="_blank" rel="noopener">View on Magic Eden &#8599;</a>
-      <div class="meta-counter" id="m-counter"></div>
-    </div>
+    <div class="trait-strip" id="m-traits"></div>
   </div>
+  <div id="art-wrap"><img id="art" src="" alt="" /></div>
   <div id="progress"><div id="progress-fill"></div></div>
   <div id="controls">
     <button class="ctrl-btn" onclick="backToList()">&#8592; List</button>
@@ -332,6 +342,7 @@ var bgEl      = document.getElementById('bg');
 var artEl     = document.getElementById('art');
 var mName     = document.getElementById('m-name');
 var mColl     = document.getElementById('m-coll');
+var mFloor    = document.getElementById('m-floor');
 var mTraits   = document.getElementById('m-traits');
 var mRarity   = document.getElementById('m-rarity');
 var mMeLink   = document.getElementById('m-melink');
@@ -609,6 +620,65 @@ function parseRarityValue(value) {
   return { key: key, pct: match ? parseFloat(match[2]) : null };
 }
 
+// Floor price per collection, same two calls wallet.html uses
+// (resolve a held mint's ME symbol, then that collection's /stats floor
+// in lamports). Cached by collection name so shuffling back into a
+// collection already seen this session doesn't refetch it.
+var floorCache = {}; // collection name -> SOL floor (number) | null (no ME data)
+
+async function resolveMESymbol(mintAddress) {
+  try {
+    var res = await fetch(ME_PROXY_BASE + '/v2/tokens/' + mintAddress);
+    if (!res.ok) return null;
+    var data = await res.json();
+    var collectionField = data && data.collection;
+    if (typeof collectionField === 'string') return collectionField;
+    return (collectionField && (collectionField.symbol || collectionField.name)) || (data && data.collectionSymbol) || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function fetchFloorPrice(symbol) {
+  try {
+    var res = await fetch(ME_PROXY_BASE + '/v2/collections/' + symbol + '/stats');
+    if (!res.ok) return null;
+    var data = await res.json();
+    return (data && typeof data.floorPrice === 'number') ? data.floorPrice / 1e9 : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function renderFloor(floor) {
+  mFloor.textContent = (typeof floor === 'number') ? (floor.toFixed(4) + ' SOL floor') : 'no ME data';
+}
+
+// Fire-and-forget from show() below — never blocks the cover from
+// displaying. Guards against a stale response landing after the visitor
+// has already moved on to a different collection by checking mColl's
+// current text (set synchronously in show()) still matches what this
+// lookup was for before writing anything to the DOM.
+function updateFloorDisplay(n) {
+  var collKey = n.collection; // matches mColl.textContent exactly, incl. '' for uncategorized items — see the guard below
+  if (Object.prototype.hasOwnProperty.call(floorCache, collKey)) {
+    renderFloor(floorCache[collKey]);
+    return;
+  }
+  mFloor.textContent = '…';
+  resolveMESymbol(n.mint).then(function(symbol) {
+    if (!symbol) {
+      floorCache[collKey] = null;
+      if (mColl.textContent === collKey) renderFloor(null);
+      return;
+    }
+    return fetchFloorPrice(symbol).then(function(floor) {
+      floorCache[collKey] = floor;
+      if (mColl.textContent === collKey) renderFloor(floor);
+    });
+  });
+}
+
 function show(i) {
   var n = nfts[i];
   if (!n) return;
@@ -631,6 +701,7 @@ function show(i) {
   bgEl.style.backgroundImage = n.image ? ('url(' + n.image + ')') : 'none';
   mName.textContent = n.name;
   mColl.textContent = n.collection;
+  updateFloorDisplay(n);
 
   var allAttrs = n.attributes || [];
   var rarityAttr = allAttrs.find(function(a) { return /^rarity$/i.test(a.trait_type || ''); });
