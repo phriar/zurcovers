@@ -431,11 +431,12 @@ async function resolveMESymbol(mintAddress){
 // exact mint's page on candy.io (confirmed live: distinct per serial, not
 // shared across copies of the same print). Passed through unmodified by
 // the Worker's generic proxy, so no backend change was needed to surface
-// it. That candy.io page is a public item/provenance page, not
-// necessarily the logged-in comic reader itself — Candy's actual reading
-// experience appears to sit behind their own account/wallet login, which
-// nothing here can bypass — but it's a real, correct, item-specific link
-// rather than a guess or a bare homepage link.
+// it. Confirmed live end-to-end: logged out, that URL is just a public
+// item/provenance page — but once logged into Candy with the wallet that
+// owns it, the same link recognizes ownership and unlocks the actual
+// comic reader (one "Unlock" tap). Nothing here can log someone into
+// Candy for them; it just gets them to the right specific item instead of
+// a guess or a bare homepage link.
 async function resolveCandyUrl(mintAddress){
   try{
     const res = await fetch(`${ME_BASE}/tokens/${mintAddress}`);
