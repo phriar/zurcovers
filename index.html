@@ -3,93 +3,122 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="theme-color" content="#0a0a0a">
+<meta name="theme-color" content="#241407">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="manifest" href="site.webmanifest">
-<title>zurcovers — Your DC Covers, Full Screen</title>
-<meta name="description" content="Paste a public Solana wallet address to view and slideshow the DC digital comic covers it holds — read-only, no wallet connection.">
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
+<title>zurcovers — Your Long Box, Pulled From Chain</title>
+<meta name="description" content="Paste a public Solana wallet address to open your Long Box — every DC digital comic cover it holds, browsable like a comic shop shelf, with rarity and current Magic Eden floor value. No wallet connection, no signature.">
+<link href="https://fonts.googleapis.com/css2?family=Bangers&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
 
   :root{
-    --ink:    #0a0a0a;
-    --gold:   #8f6fe8;
-    --deep:   #6b2fd6;
-    --cyan:   #4de8ff;
-    --border: rgba(255,255,255,0.07);
+    --wood-dark:  #241407;
+    --wood-mid:   #3a230f;
+    --gold:   #e8b24d;
+    --cyan:   #2de6d0;
+    --paper:  #f3efe6;
+    --tag-red: #c0392b;
+    --border: rgba(243,239,230,0.1);
   }
 
   body{
-    background:var(--ink); color:#fff; min-height:100vh;
+    background:
+      repeating-linear-gradient(90deg, rgba(0,0,0,0.08) 0px, transparent 2px, transparent 26px, rgba(0,0,0,0.08) 28px),
+      linear-gradient(180deg, var(--wood-mid), var(--wood-dark) 70%);
+    color:var(--paper); min-height:100vh;
     font-family:'DM Mono',monospace; -webkit-font-smoothing:antialiased;
     display:flex; align-items:center; justify-content:center;
     padding:32px;
   }
 
   #grain{
-    position:fixed; inset:0; z-index:0; pointer-events:none; opacity:0.025;
+    position:fixed; inset:0; z-index:0; pointer-events:none; opacity:0.05;
     background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   }
 
-  main{
-    position:relative; z-index:1; max-width:560px; text-align:center;
-  }
+  main{ position:relative; z-index:1; max-width:560px; width:100%; text-align:center; }
 
   .wordmark{
     font-size:.8rem; letter-spacing:.5em; text-transform:uppercase;
-    color:rgba(255,255,255,0.3); margin-bottom:22px;
+    color:rgba(243,239,230,0.4); margin-bottom:18px;
   }
 
   h1{
-    font-family:'Cormorant Garamond',serif; font-weight:300; letter-spacing:.01em;
-    font-size:clamp(2.2rem,7vw,3.4rem); color:rgba(255,255,255,0.95); line-height:1.15;
-    margin-bottom:20px;
+    font-family:'Bangers',cursive; font-weight:400; letter-spacing:.03em;
+    font-size:clamp(2.6rem,8vw,4.2rem); color:var(--gold); line-height:1;
+    text-shadow:3px 3px 0 rgba(0,0,0,0.4); margin-bottom:16px;
   }
-  h1 span{
-    background:linear-gradient(135deg, var(--gold), var(--cyan));
-    -webkit-background-clip:text; background-clip:text; color:transparent;
-  }
+  h1 span{ color:var(--paper); }
 
   p.tagline{
-    font-size:1rem; line-height:1.7; color:rgba(255,255,255,0.5);
-    max-width:440px; margin:0 auto 34px;
+    font-size:.95rem; line-height:1.7; color:rgba(243,239,230,0.6);
+    max-width:440px; margin:0 auto 26px;
   }
 
-  /* Disclosure, up front, not buried — same lesson learned building
-     ZurVault: a site displaying live third-party marketplace data next to
-     recognizable branded art should never leave a visitor guessing whether
-     it's an official storefront. Stated plainly from day one here rather
-     than retrofitted after the fact. */
+  .mental-model{
+    max-width:440px; margin:0 auto 30px; font-family:'Cormorant Garamond',serif; font-style:italic;
+    font-size:1.05rem; line-height:1.6; color:rgba(243,239,230,0.75);
+  }
+  .mental-model b{ color:var(--gold); font-weight:500; font-style:normal; }
+
+  .entry-panel{
+    display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:center;
+    margin-bottom:10px;
+  }
+  .entry-panel input{
+    flex:1; min-width:240px; background:rgba(0,0,0,0.35); border:1px solid rgba(243,239,230,0.15); color:var(--paper);
+    font-family:'DM Mono',monospace; font-size:.78rem; padding:13px 15px; border-radius:2px; outline:none;
+  }
+  .entry-panel input:focus{ border-color:var(--gold); }
+  .entry-panel button{
+    background:var(--tag-red); border:1px solid rgba(0,0,0,0.3); color:#fff;
+    font-family:'Bangers',cursive; font-size:1.05rem; letter-spacing:.06em; text-transform:uppercase;
+    padding:12px 24px; border-radius:2px; cursor:pointer; transition:filter .15s; white-space:nowrap;
+  }
+  .entry-panel button:hover{ filter:brightness(1.15); }
+  .entry-err{ min-height:1.4em; font-size:.68rem; color:#e8917a; margin-bottom:22px; }
+
   .disclosure{
-    max-width:440px; margin:0 auto; padding:14px 18px;
-    border:1px solid rgba(77,232,255,0.18); border-radius:4px;
-    background:rgba(77,232,255,0.05);
-    font-size:.72rem; line-height:1.6; color:rgba(255,255,255,0.5);
+    max-width:440px; margin:0 auto 30px; padding:14px 18px;
+    border:1px solid rgba(45,230,208,0.2); border-radius:4px;
+    background:rgba(45,230,208,0.05);
+    font-size:.72rem; line-height:1.6; color:rgba(243,239,230,0.55); text-align:left;
   }
 
-  footer{
-    margin-top:40px; font-size:.62rem; letter-spacing:.1em;
-    color:rgba(255,255,255,0.25); text-transform:uppercase;
+  .more-views{ margin-top:6px; }
+  .more-views .label{
+    font-size:.62rem; letter-spacing:.18em; text-transform:uppercase; color:rgba(243,239,230,0.35);
+    margin-bottom:12px;
   }
-  footer a{ color:rgba(143,111,232,0.6); text-decoration:none; }
-  footer a:hover{ color:var(--gold); }
-
-  .page-list{ margin-top:26px; display:flex; flex-direction:column; gap:10px; text-align:left; }
+  .page-list{ display:flex; flex-direction:column; gap:10px; text-align:left; }
   .page-card{
-    display:block; text-decoration:none; padding:14px 18px; border:1px solid var(--border);
+    display:block; text-decoration:none; padding:13px 16px; border:1px solid var(--border);
     border-radius:4px; transition:all .15s;
   }
-  .page-card:hover{ border-color:rgba(143,111,232,0.5); background:rgba(143,111,232,0.04); }
+  .page-card:hover{ border-color:rgba(232,178,77,0.5); background:rgba(232,178,77,0.05); }
   .page-card .page-name{
-    font-size:.78rem; letter-spacing:.1em; text-transform:uppercase; color:rgba(143,111,232,0.85);
+    font-size:.72rem; letter-spacing:.1em; text-transform:uppercase; color:rgba(232,178,77,0.85); font-family:'DM Mono',monospace;
   }
   .page-card:hover .page-name{ color:var(--gold); }
   .page-card .page-desc{
-    margin-top:4px; font-size:.74rem; line-height:1.5; color:rgba(255,255,255,0.45);
+    margin-top:4px; font-size:.72rem; line-height:1.5; color:rgba(243,239,230,0.45);
+  }
+
+  footer{
+    margin-top:36px; font-size:.6rem; letter-spacing:.1em;
+    color:rgba(243,239,230,0.3); text-transform:uppercase;
+  }
+  footer a{ color:rgba(232,178,77,0.65); text-decoration:none; }
+  footer a:hover{ color:var(--gold); }
+
+  @media (max-width:480px){
+    body{ padding:22px 16px; }
+    .entry-panel{ flex-direction:column; align-items:stretch; }
+    .entry-panel input, .entry-panel button{ width:100%; }
   }
 </style>
 </head>
@@ -98,35 +127,70 @@
 
 <main>
   <div class="wordmark">zurcovers</div>
-  <h1>Your DC covers,<br><span>pulled from chain.</span></h1>
-  <p class="tagline">Paste a public Solana wallet address to see the DC digital comic covers it holds — grid view with current Magic Eden floor prices, or a full-screen slideshow with NFT attributes. No wallet connection, no signature, no transaction. Read-only, always.</p>
+  <h1>Your <span>Long Box</span>,<br>pulled from chain.</h1>
+  <p class="tagline">Paste a public Solana wallet address and step into your Long Box — every DC digital comic cover it holds, arranged like a shelf in a comic shop, with rarity and the current Magic Eden floor on the tag. No wallet connection, no signature, no transaction. Read-only, always.</p>
+  <p class="mental-model"><b>ZurVault</b> helps you find the books. <b>ZurCovers</b> lets you enjoy the collection.</p>
+
+  <div class="entry-panel">
+    <input type="text" id="wallet-input" placeholder="paste a public wallet address" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <button id="open-btn">Open My Long Box</button>
+  </div>
+  <div class="entry-err" id="entry-err"></div>
 
   <div class="disclosure">
     Unofficial fan project &mdash; not affiliated with, endorsed by, or sponsored by DC Comics, Warner Bros. Discovery, or Candy Digital. It only ever reads a public wallet address you provide; it never requests a wallet connection and cannot move, sell, or modify anything you own.
   </div>
 
-  <div class="page-list">
-    <a class="page-card" href="wallet.html">
-      <div class="page-name">My Wallet &#8599;</div>
-      <div class="page-desc">Grid view of everything the wallet holds, with the current Magic Eden floor price per collection.</div>
-    </a>
-    <a class="page-card" href="collections.html">
-      <div class="page-name">My Collections &#8599;</div>
-      <div class="page-desc">Browse by collection first, then drill into one to see rarity tiers you own and the current lowest listed price for each.</div>
-    </a>
-    <a class="page-card" href="activity.html">
-      <div class="page-name">Buying Activity &#8599;</div>
-      <div class="page-desc">See which DC collections a wallet has been buying into on Magic Eden, without checking every collection page yourself.</div>
-    </a>
-    <a class="page-card" href="slideshow.html">
-      <div class="page-name">Slideshow &#8599;</div>
-      <div class="page-desc">Full-screen kiosk playback, collection picker and shuffle, with floor price and NFT attributes shown at the top of each frame.</div>
-    </a>
+  <div class="more-views">
+    <div class="label">Deeper views, same wallet</div>
+    <div class="page-list">
+      <a class="page-card" href="collections.html">
+        <div class="page-name">Collections &#8599;</div>
+        <div class="page-desc">Browse by collection first, then drill into rarity tiers and current lowest listed price for each.</div>
+      </a>
+      <a class="page-card" href="wallet.html">
+        <div class="page-name">Grid &#8599;</div>
+        <div class="page-desc">The traditional data-dense grid — search, group by rarity, sort by value.</div>
+      </a>
+      <a class="page-card" href="slideshow.html">
+        <div class="page-name">Slideshow &#8599;</div>
+        <div class="page-desc">Full-screen kiosk playback, collection picker and shuffle, attributes on every frame.</div>
+      </a>
+    </div>
   </div>
 
   <footer>
     A sandbox companion to <a href="https://zurvault.com" target="_blank" rel="noopener">zurvault.com</a>
   </footer>
 </main>
+
+<script>
+const WALLET_KEY = 'zurcovers_wallet';
+const SOL_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const walletInputEl = document.getElementById('wallet-input');
+const openBtnEl = document.getElementById('open-btn');
+const errEl = document.getElementById('entry-err');
+
+// This page never fetches wallet data itself — it only captures the
+// address and hands off to wallet-2.html (the Long Box), which already
+// owns that loading logic. Keeping one copy of the fetch/parse/render
+// pipeline avoids two pages drifting out of sync with each other.
+function openLongBox(){
+  const addr = walletInputEl.value.trim();
+  if(!SOL_ADDRESS_RE.test(addr)){
+    errEl.textContent = "That doesn't look like a valid Solana address.";
+    return;
+  }
+  localStorage.setItem(WALLET_KEY, addr);
+  window.location.href = 'wallet-2.html?wallet=' + encodeURIComponent(addr);
+}
+openBtnEl.addEventListener('click', openLongBox);
+walletInputEl.addEventListener('keydown', (e) => { if(e.key === 'Enter') openLongBox(); });
+
+(function init(){
+  const saved = localStorage.getItem(WALLET_KEY);
+  if(saved && SOL_ADDRESS_RE.test(saved)) walletInputEl.value = saved;
+})();
+</script>
 </body>
 </html>

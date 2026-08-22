@@ -9,8 +9,8 @@
 <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="manifest" href="site.webmanifest">
-<title>My Wallet (Shelf View) — zurcovers</title>
-<meta name="description" content="See every DC digital comic cover a public Solana wallet holds, arranged like a comic shop shelf, with current Magic Eden floor price where available.">
+<title>The Long Box — zurcovers</title>
+<meta name="description" content="Enter a public Solana wallet address and browse the DC digital comic covers it holds like a long box in a comic shop — duplicates, rarity, and current Magic Eden floor value at a glance.">
 <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
@@ -45,10 +45,6 @@
   header .brand{ font-size:.7rem; letter-spacing:.4em; color:rgba(243,239,230,0.4); text-transform:uppercase; font-family:'DM Mono',monospace; }
   header .brand a{ color:rgba(243,239,230,0.4); text-decoration:none; }
   header .brand a:hover{ color:var(--gold); }
-  header .experimental{
-    display:inline-block; margin-left:10px; font-size:.6rem; letter-spacing:.1em; text-transform:uppercase;
-    color:rgba(45,230,208,0.8); border:1px solid rgba(45,230,208,0.3); border-radius:20px; padding:2px 9px;
-  }
   header h1{
     font-family:'Bangers',cursive; font-weight:400; letter-spacing:.03em;
     font-size:clamp(2.4rem,7vw,4rem); line-height:1; margin-top:12px;
@@ -83,13 +79,118 @@
   }
   .entry-panel button:hover{ filter:brightness(1.15); }
 
-  .portfolio-value{
-    position:relative; z-index:1; margin:0 32px 16px; padding:14px 18px;
-    border:1px solid rgba(232,178,77,0.35); border-radius:4px; background:rgba(232,178,77,0.08);
-    font-size:.82rem; line-height:1.8; color:rgba(243,239,230,0.8); display:none;
+  /* Collector summary — a small strip of stat tiles, not a dashboard.
+     Deliberately terser than a table: four numbers, no charts, so the
+     shelf below still reads as the reason the page exists. */
+  .collector-summary{
+    position:relative; z-index:1; margin:0 32px 8px; display:flex; gap:1px;
+    background:rgba(0,0,0,0.35); border-radius:4px; overflow:hidden;
+    border:1px solid rgba(232,178,77,0.25);
   }
-  .portfolio-value b{ color:var(--gold); font-weight:500; }
-  .portfolio-value .note{ display:block; margin-top:2px; font-size:.66rem; color:rgba(243,239,230,0.45); }
+  .stat{ flex:1; min-width:0; padding:12px 14px; background:rgba(0,0,0,0.15); text-align:center; }
+  .stat-value{ font-family:'Bangers',cursive; font-size:1.3rem; letter-spacing:.02em; color:var(--paper); line-height:1.1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .stat-value-tile .stat-value{ color:var(--gold); }
+  .stat-label{ margin-top:3px; font-family:'DM Mono',monospace; font-size:.56rem; letter-spacing:.08em; text-transform:uppercase; color:rgba(243,239,230,0.45); }
+  .value-note{
+    position:relative; z-index:1; margin:0 32px 16px; font-size:.66rem; line-height:1.6;
+    color:rgba(243,239,230,0.4); font-family:'DM Mono',monospace;
+  }
+
+  /* "Complete the Run" — surfaces only when the wallet's own numbered
+     issues (e.g. "#1", "#2") show a gap between the lowest and highest
+     owned number in a series. No external catalog of full runs exists
+     yet (see CLAUDE.md), so this can never claim a series is "complete,"
+     only point out a hole between books already in hand. */
+  .complete-run{
+    position:relative; z-index:1; margin:0 32px 16px; padding:14px 18px;
+    border:1px solid rgba(192,57,43,0.35); border-radius:4px; background:rgba(192,57,43,0.08);
+  }
+  .cr-heading{
+    font-family:'Bangers',cursive; letter-spacing:.03em; font-size:1.05rem; color:#e8917a;
+    margin-bottom:8px;
+  }
+  .cr-row{ padding:8px 0; border-top:1px solid rgba(243,239,230,0.08); }
+  .cr-row:first-of-type{ border-top:none; padding-top:0; }
+  .cr-name{ font-family:'Cormorant Garamond',serif; font-size:1rem; color:rgba(243,239,230,0.9); }
+  .cr-status{ font-family:'DM Mono',monospace; font-size:.68rem; line-height:1.7; color:rgba(243,239,230,0.6); margin-top:2px; }
+  .cr-missing{ color:#e8917a; }
+  .cr-hunt{
+    display:inline-block; margin-top:6px; font-family:'DM Mono',monospace; font-size:.62rem; letter-spacing:.08em;
+    text-transform:uppercase; color:var(--tag-red); background:var(--paper); text-decoration:none;
+    padding:5px 11px; border-radius:2px; transition:filter .15s;
+  }
+  .cr-hunt:hover{ filter:brightness(0.92); }
+  .cr-caveat{ margin-top:10px; font-size:.62rem; line-height:1.6; color:rgba(243,239,230,0.35); }
+
+  /* Long-box divider tab — a full-width break between collections while
+     scrolling the shelf in default (collection-grouped) order. Skipped
+     entirely in price-sorted mode, where cards interleave across
+     collections and a per-collection tab would be misleading. */
+  .shelf-divider{
+    flex-basis:100%; display:flex; align-items:center; gap:12px; margin:22px 0 2px;
+  }
+  .shelf-divider::before, .shelf-divider::after{
+    content:''; flex:1; height:2px;
+    background:repeating-linear-gradient(90deg, rgba(232,178,77,0.35) 0 8px, transparent 8px 15px);
+  }
+  .shelf-divider span{
+    font-family:'Bangers',cursive; letter-spacing:.03em; font-size:.95rem; color:var(--gold);
+    background:var(--wood-dark); padding:4px 16px; border:2px solid rgba(232,178,77,0.4); border-radius:3px;
+    text-transform:uppercase; box-shadow:0 3px 0 rgba(0,0,0,0.3); white-space:nowrap;
+  }
+  .shelf > .shelf-divider:first-child{ margin-top:0; }
+
+  .comic-rarity{
+    display:inline-block; font-family:'DM Mono',monospace; font-size:.52rem; letter-spacing:.06em; text-transform:uppercase;
+    padding:1px 7px; border-radius:9px; border:1px solid; margin-top:3px;
+  }
+  .comic-rarity.rarity-common     { color:#c2c6cc; border-color:rgba(194,198,204,0.4); }
+  .comic-rarity.rarity-uncommon   { color:#7fe0a8; border-color:rgba(127,224,168,0.4); }
+  .comic-rarity.rarity-rare       { color:var(--cyan); border-color:rgba(45,230,208,0.4); }
+  .comic-rarity.rarity-epic       { color:#c79bff; border-color:rgba(199,155,255,0.5); }
+  .comic-rarity.rarity-legendary  { color:var(--gold); border-color:rgba(232,178,77,0.5); }
+
+  /* Copies panel — opened when a multi-copy card is tapped, showing each
+     individual owned copy with its own cover (different rarity variants
+     under the same title can carry different art) and its own Magic Eden
+     link. Deliberately a lightweight in-page overlay, not a new route —
+     the Long Box stays a single continuous page. */
+  .copies-modal{
+    position:fixed; inset:0; z-index:50; display:none; align-items:flex-start; justify-content:center;
+    padding:8vh 20px 40px; overflow-y:auto;
+  }
+  .copies-modal-backdrop{ position:fixed; inset:0; background:rgba(0,0,0,0.75); }
+  .copies-modal-panel{
+    position:relative; z-index:1; max-width:640px; width:100%;
+    background:var(--wood-mid); border:2px solid rgba(232,178,77,0.35); border-radius:6px;
+    padding:28px 24px 26px; box-shadow:0 20px 50px rgba(0,0,0,0.6);
+  }
+  .copies-modal-close{
+    position:absolute; top:12px; right:14px; background:transparent; border:none; color:rgba(243,239,230,0.5);
+    font-size:1.8rem; line-height:1; cursor:pointer; padding:4px 8px;
+  }
+  .copies-modal-close:hover{ color:var(--paper); }
+  .copies-modal-title{ font-family:'Bangers',cursive; font-size:1.5rem; letter-spacing:.02em; color:var(--gold); padding-right:30px; }
+  .copies-modal-sub{
+    margin-top:4px; margin-bottom:20px; font-family:'DM Mono',monospace; font-size:.66rem; letter-spacing:.05em;
+    text-transform:uppercase; color:rgba(243,239,230,0.5);
+  }
+  .copies-modal-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(110px,1fr)); gap:18px; }
+  .copy-card{ text-decoration:none; display:block; text-align:center; }
+  .copy-card img, .copy-card .no-preview{
+    width:100%; aspect-ratio:2/3; object-fit:cover; border-radius:2px; box-shadow:0 4px 10px rgba(0,0,0,0.4);
+    background:rgba(255,255,255,0.05); display:block;
+  }
+  .copy-card .no-preview{
+    display:flex; align-items:center; justify-content:center; text-align:center; color:rgba(243,239,230,0.4);
+    font-family:'DM Mono',monospace; font-size:.55rem; letter-spacing:.03em; text-transform:uppercase; padding:6px;
+  }
+  .copy-card .comic-rarity{ margin-top:6px; }
+  .copy-serial{ margin-top:6px; font-family:'DM Mono',monospace; font-size:.58rem; color:rgba(243,239,230,0.4); }
+  .copy-me-tag{
+    font-family:'DM Mono',monospace; font-size:.54rem; letter-spacing:.05em; text-transform:uppercase;
+    color:rgba(45,230,208,0.7); margin-top:2px;
+  }
 
   .controls-row{ position:relative; z-index:1; padding:0 32px 16px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
   .control-label{ font-size:.6rem; letter-spacing:.1em; text-transform:uppercase; color:rgba(243,239,230,0.4); margin-right:2px; }
@@ -119,11 +220,11 @@
      the "randomness" doesn't jitter between re-renders (e.g. every time
      a floor price resolves and render() re-runs). */
   .shelf{
-    position:relative; z-index:1; display:flex; flex-wrap:wrap; gap:22px 14px;
+    position:relative; z-index:1; display:flex; flex-wrap:wrap; gap:26px 16px;
     padding:36px 40px 80px; align-items:flex-end;
   }
   .comic{
-    position:relative; width:150px; flex-shrink:0;
+    position:relative; width:clamp(140px, 22vw, 190px); flex-shrink:0;
     transform:rotate(var(--tilt)); transition:transform .2s ease, box-shadow .2s ease;
     text-decoration:none; display:block; cursor:pointer;
   }
@@ -180,33 +281,62 @@
 
   .empty{ position:relative; z-index:1; padding:60px 32px; text-align:center; color:rgba(243,239,230,0.4); font-family:'Cormorant Garamond',serif; font-size:1.2rem; font-weight:300; line-height:1.6; }
 
-  footer{ position:relative; z-index:1; padding:28px 32px 44px; text-align:center; font-size:.5rem; letter-spacing:.12em; color:rgba(243,239,230,0.3); text-transform:uppercase; }
+  footer{
+    position:relative; z-index:1; padding:28px 32px calc(44px + env(safe-area-inset-bottom, 0px));
+    text-align:center; font-size:.5rem; letter-spacing:.12em; color:rgba(243,239,230,0.3); text-transform:uppercase;
+  }
   footer a{ color:rgba(232,178,77,0.7); text-decoration:none; }
   footer a:hover{ color:var(--gold); }
+
+  /* Mobile — a phone screen is most of this site's traffic, so this isn't
+     an afterthought clamp: tighter side padding gives covers more room,
+     and the stat strip wraps to two rows instead of squeezing four tiles
+     illegibly narrow. */
+  @media (max-width:600px){
+    header{ padding:32px 18px 18px; }
+    .disclosures, .entry-panel, .collector-summary, .value-note, .complete-run,
+    .controls-row, #status, .caveat, .shelf, footer{
+      padding-left:18px; padding-right:18px;
+    }
+    .collector-summary{ margin-left:18px; margin-right:18px; flex-wrap:wrap; }
+    .stat{ min-width:44%; }
+    .value-note, .complete-run{ margin-left:18px; margin-right:18px; }
+    .shelf{ padding-left:18px; padding-right:18px; gap:22px 12px; justify-content:space-between; }
+    .comic{ width:clamp(140px, 44vw, 190px); }
+    .entry-panel button{ width:100%; }
+    .entry-panel input{ min-width:0; width:100%; }
+  }
 </style>
 </head>
 <body>
 <div id="grain"></div>
 
 <header>
-  <div class="brand"><a href="index.html">zurcovers</a> / My Wallet <span class="experimental">Shelf View — Experimental</span></div>
+  <div class="brand"><a href="index.html">zurcovers</a> / Long Box</div>
   <h1>The <span>Long Box</span></h1>
-  <div class="sub">Everything a public Solana wallet holds, arranged like a shop shelf instead of a grid — current Magic Eden floor price on the price tag. Public address only — no wallet connection, no signing.</div>
+  <div class="sub">Everything a public Solana wallet holds, arranged like a long box in a comic shop instead of a data grid — current Magic Eden floor price on the price tag. Public address only — no wallet connection, no signing.</div>
   <div class="nav-links">
-    <a href="wallet.html">Classic Grid View</a>
-    <a href="collections.html">By Collection &amp; Rarity</a>
-    <a href="activity.html">Buying Activity</a>
-    <a href="slideshow.html">Full-Screen Slideshow &#8599;</a>
+    <a href="collections.html">Collections</a>
+    <a href="wallet.html">Grid</a>
+    <a href="slideshow.html">Slideshow &#8599;</a>
     <a href="index.html">Home</a>
   </div>
 </header>
 
 <div class="entry-panel">
   <input type="text" id="wallet-input" placeholder="paste a public wallet address" autocapitalize="off" autocorrect="off" spellcheck="false">
-  <button id="load-btn">Browse Shelf</button>
+  <button id="load-btn">Open My Long Box</button>
 </div>
 
-<div class="portfolio-value" id="portfolio-value"></div>
+<div class="collector-summary" id="collector-summary" style="display:none">
+  <div class="stat"><div class="stat-value" id="stat-unique">&mdash;</div><div class="stat-label">Unique Comics</div></div>
+  <div class="stat"><div class="stat-value" id="stat-total">&mdash;</div><div class="stat-label">Total Copies</div></div>
+  <div class="stat"><div class="stat-value" id="stat-collections">&mdash;</div><div class="stat-label">Collections</div></div>
+  <div class="stat stat-value-tile"><div class="stat-value" id="stat-value">&mdash;</div><div class="stat-label">Est. Floor Value</div></div>
+</div>
+<div class="value-note" id="value-note" style="display:none">Estimated using each comic's current Magic Eden collection floor &mdash; the going market rate for that print, not necessarily what your specific serial would sell for.</div>
+
+<div class="complete-run" id="complete-run" style="display:none"></div>
 
 <div class="controls-row" id="controls-row" style="display:none">
   <span class="control-label">Sort</span>
@@ -219,6 +349,16 @@
   Small/unfamiliar "collection" entries in a wallet are often unsolicited airdrop NFTs, not anything you acquired — Magic Eden simply not recognizing one is common and not itself a red flag. Never interact with anything claiming you need to "claim" a reward.
 </div>
 <div class="shelf" id="shelf"></div>
+
+<div class="copies-modal" id="copies-modal" style="display:none">
+  <div class="copies-modal-backdrop" id="copies-modal-backdrop"></div>
+  <div class="copies-modal-panel" role="dialog" aria-modal="true" aria-labelledby="copies-modal-title">
+    <button class="copies-modal-close" id="copies-modal-close" aria-label="Close">&times;</button>
+    <div class="copies-modal-title" id="copies-modal-title"></div>
+    <div class="copies-modal-sub" id="copies-modal-sub"></div>
+    <div class="copies-modal-grid" id="copies-modal-grid"></div>
+  </div>
+</div>
 
 <div class="disclosures">
   <div class="disclosure-box warn"><strong>Never share your private key or seed phrase with anyone, including here.</strong> This page only ever needs a <strong>public</strong> wallet address — the same address anyone could already look up on a block explorer. It never asks for anything else.</div>
@@ -241,7 +381,13 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const statusEl = document.getElementById('status');
 const caveatEl = document.getElementById('caveat');
 const shelfEl = document.getElementById('shelf');
-const portfolioValueEl = document.getElementById('portfolio-value');
+const portfolioValueEl = document.getElementById('collector-summary');
+const valueNoteEl = document.getElementById('value-note');
+const statUniqueEl = document.getElementById('stat-unique');
+const statTotalEl = document.getElementById('stat-total');
+const statCollectionsEl = document.getElementById('stat-collections');
+const statValueEl = document.getElementById('stat-value');
+const completeRunEl = document.getElementById('complete-run');
 const walletInputEl = document.getElementById('wallet-input');
 const loadBtnEl = document.getElementById('load-btn');
 const controlsRowEl = document.getElementById('controls-row');
@@ -251,6 +397,92 @@ const sortPriceBtn = document.getElementById('sort-price');
 let allGroups = {};
 let flatCards = [];
 let sortMode = 'default'; // 'default' | 'price-desc'
+
+// Same rarity-string normalization as wallet.html/collections.html/the
+// Worker — "(40.400)" weight suffixes stripped, CORE/BASE/STANDARD
+// aliased to Common.
+const RARITY_ALIASES = { common:'common', core:'common', base:'common', standard:'common', uncommon:'uncommon', rare:'rare', epic:'epic', legendary:'legendary' };
+const RARITY_LABELS = { common:'Common', uncommon:'Uncommon', rare:'Rare', epic:'Epic', legendary:'Legendary' };
+function normalizeRarity(attributes){
+  const attr = (attributes || []).find(a => /^rarity$/i.test(a?.trait_type || ''));
+  if(!attr) return null;
+  const raw = String(attr.value || '').trim();
+  const match = /^(.*?)\s*\(([\d.]+)\)\s*$/.exec(raw);
+  const cleaned = (match ? match[1] : raw).trim().toLowerCase();
+  const key = RARITY_ALIASES[cleaned];
+  return key ? RARITY_LABELS[key] : null;
+}
+
+// "Complete the run" gap detection — same technique as wallet.html's
+// search-time gap summary, but always-on across the whole wallet rather
+// than gated behind narrowing a search to one series. There's no external
+// catalog of a series' full published range available to either site yet
+// (see CLAUDE.md's ZurVault-integration notes), so this can only ever spot
+// a hole BETWEEN the lowest and highest issue number already owned — it
+// can't know whether the run continues past the highest owned issue, or
+// started before the lowest.
+function extractIssueNumber(title){
+  const m = /#(\d+)\s*$/.exec(title);
+  return m ? parseInt(m[1], 10) : null;
+}
+function seriesBaseName(title){
+  return title.replace(/\s*#\d+\s*$/, '').trim();
+}
+// Best-effort slug matching ZurVault's own collections-map.js id convention
+// (e.g. "Absolute Batman" -> "absolute-batman") — a guess, not a synced
+// lookup table, so it degrades gracefully: ZurVault's collection.html
+// already shows its own "no series matches that" message with a link back
+// to browsing manually when a guess misses.
+function slugify(s){
+  return String(s).toLowerCase().replace(/'/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+function computeCompleteTheRun(){
+  const bySeries = new Map();
+  for(const c of flatCards){
+    const num = extractIssueNumber(c.title);
+    if(num === null) continue;
+    const base = seriesBaseName(c.title);
+    if(!bySeries.has(base)) bySeries.set(base, new Set());
+    bySeries.get(base).add(num);
+  }
+  const runs = [];
+  for(const [base, nums] of bySeries){
+    if(nums.size < 2) continue; // need at least 2 owned issues to talk about a "range"
+    const sorted = [...nums].sort((a, b) => a - b);
+    const min = sorted[0], max = sorted[sorted.length - 1];
+    const missing = [];
+    for(let n = min; n <= max; n++) if(!nums.has(n)) missing.push(n);
+    if(missing.length > 0) runs.push({ base, owned: sorted.length, min, max, missing });
+  }
+  runs.sort((a, b) => a.missing.length - b.missing.length);
+  return runs;
+}
+function renderCompleteTheRun(){
+  const runs = computeCompleteTheRun();
+  if(runs.length === 0){ completeRunEl.style.display = 'none'; return; }
+  completeRunEl.style.display = 'block';
+  completeRunEl.innerHTML = `<div class="cr-heading">Complete The Run</div>` +
+    runs.slice(0, 6).map(r => {
+      const zvUrl = `https://zurvault.com/collection.html?s=${encodeURIComponent(slugify(r.base))}`;
+      return `
+        <div class="cr-row">
+          <div class="cr-name">${esc(r.base)}</div>
+          <div class="cr-status">You own ${r.owned} of the ${r.max - r.min + 1} issues seen (#${r.min}&ndash;#${r.max}) &mdash; missing <span class="cr-missing">#${r.missing.join(', #')}</span></div>
+          <a class="cr-hunt" href="${esc(zvUrl)}" target="_blank" rel="noopener">Hunt the missing books on ZurVault &#8599;</a>
+        </div>`;
+    }).join('') +
+    `<div class="cr-caveat">Based only on issue numbers seen in your wallet — can't tell if a series continues past #${runs[0].max} or started before #${runs[0].min}.</div>`;
+}
+
+function updateCollectorStats(){
+  const uniqueCount = flatCards.length;
+  const totalCount = flatCards.reduce((sum, c) => sum + c.count, 0);
+  const collectionCount = Object.keys(allGroups).length;
+  statUniqueEl.textContent = uniqueCount;
+  statTotalEl.textContent = totalCount;
+  statCollectionsEl.textContent = collectionCount;
+  portfolioValueEl.style.display = 'flex';
+}
 
 function setStatus(msg, isErr){
   statusEl.innerHTML = (isErr ? '' : '<span class="dot"></span>') + msg;
@@ -297,7 +529,9 @@ async function loadWallet(address){
   shelfEl.innerHTML = '';
   caveatEl.style.display = 'none';
   portfolioValueEl.style.display = 'none';
-  portfolioValueEl.innerHTML = '';
+  valueNoteEl.style.display = 'none';
+  statValueEl.textContent = '…';
+  completeRunEl.style.display = 'none';
   controlsRowEl.style.display = 'none';
   sortMode = 'default';
   sortDefaultBtn.classList.add('active');
@@ -335,6 +569,8 @@ async function loadWallet(address){
   setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Looking up floor prices…`);
   caveatEl.style.display = 'block';
   render(allGroups); // one full paint, price tags start as "…" — resolved prices patch in place below, never a second full re-render
+  updateCollectorStats();
+  renderCompleteTheRun();
   updatePortfolioValue();
 
   let done = 0;
@@ -366,38 +602,67 @@ function cleanTitle(name){
     .trim();
 }
 
+// Keeps every owned item in the group now (not just a representative) —
+// same title can genuinely hold copies at different rarity tiers (a print
+// run's rarity variants can share a base name, same as collections.html
+// handles at its rarity-breakdown level), so collapsing to one
+// representative image/rarity would silently hide that. The full list is
+// what powers the "see each copy I hold" panel below.
 function groupByName(items){
   const byName = new Map();
   for(const item of items){
     const k = cleanTitle(item.name) || item.mint;
-    if(!byName.has(k)) byName.set(k, { representative: item, count: 0 });
-    byName.get(k).count++;
+    if(!byName.has(k)) byName.set(k, []);
+    byName.get(k).push(item);
   }
-  return [...byName.values()];
+  return [...byName.values()].map(items => ({ representative: items[0], count: items.length, items }));
 }
 
 // Rendered exactly once per loadWallet() call — each comic carries
 // data-group so a later price update can find just its own price tags
 // without touching anyone else's <img>.
+// A card representing more than one held copy renders as a clickable
+// <div> that opens the copies panel instead of an <a> to Magic Eden — the
+// single representative item's image/rarity can't be trusted to speak for
+// every copy underneath it (see groupByName), so linking straight out
+// from it would point at an arbitrary one of several. A single-copy card
+// still links straight out, unchanged. priceTagHtml is passed in rather
+// than computed here so this one template serves both the initial paint
+// (price unresolved) and later full rebuilds (price already known).
+function comicCardHtml({ mint, image, rarity, count, key, collName, title, priceTagHtml }){
+  const tilt = hashTilt(mint) + 'deg';
+  const isMulti = count > 1;
+  const openTag = isMulti
+    ? `<div class="comic" style="--tilt:${tilt}" role="button" tabindex="0" data-card-id="${esc(cardIdFor(key, title))}" data-group="${esc(key)}">`
+    : `<a class="comic" style="--tilt:${tilt}" href="${esc('https://magiceden.io/item-details/' + mint)}" target="_blank" rel="noopener" data-group="${esc(key)}">`;
+  const closeTag = isMulti ? '</div>' : '</a>';
+  return `
+    ${openTag}
+      ${image ? `<img class="cover" src="${esc(image)}" loading="lazy" onerror="this.style.opacity=0.2">` : `<div class="no-preview">No preview available</div>`}
+      ${isMulti ? `<div class="qty-sticker">&times;${count}</div>` : ''}
+      ${priceTagHtml}
+      <div class="caption">
+        <div class="sub">${esc(collName)}</div>
+        <div class="name">${esc(title)}</div>
+        ${rarity ? `<div class="comic-rarity rarity-${rarity.toLowerCase()}">${esc(rarity)}</div>` : ''}
+        <div class="me-tag">${isMulti ? `See all ${count} copies &#8594;` : 'Magic Eden &#8599;'}</div>
+      </div>
+    ${closeTag}
+  `;
+}
+const PENDING_PRICE_TAG_HTML = '<div class="price-tag unavailable" data-price>…</div>';
+
 function render(groups){
   const comics = [];
   for(const key of Object.keys(groups)){
     const g = groups[key];
+    comics.push(`<div class="shelf-divider"><span>${esc(g.name)}</span></div>`);
     for(const { representative: item, count } of groupByName(g.items)){
-      const pdpUrl = `https://magiceden.io/item-details/${item.mint}`;
-      const tilt = hashTilt(item.mint) + 'deg';
-      comics.push(`
-        <a class="comic" style="--tilt:${tilt}" href="${esc(pdpUrl)}" target="_blank" rel="noopener" data-group="${esc(key)}">
-          ${item.image ? `<img class="cover" src="${esc(item.image)}" loading="lazy" onerror="this.style.opacity=0.2">` : `<div class="no-preview">No preview available</div>`}
-          ${count > 1 ? `<div class="qty-sticker">&times;${count}</div>` : ''}
-          <div class="price-tag unavailable" data-price>…</div>
-          <div class="caption">
-            <div class="sub">${esc(g.name)}</div>
-            <div class="name">${esc(cleanTitle(item.name) || item.name)}</div>
-            <div class="me-tag">Magic Eden &#8599;</div>
-          </div>
-        </a>
-      `);
+      const title = cleanTitle(item.name) || item.name;
+      comics.push(comicCardHtml({
+        mint: item.mint, image: item.image, rarity: normalizeRarity(item.attributes),
+        count, key, collName: g.name, title, priceTagHtml: PENDING_PRICE_TAG_HTML,
+      }));
     }
   }
   shelfEl.innerHTML = comics.join('');
@@ -433,27 +698,37 @@ function updatePortfolioValue(){
     else { totalValue += g.floor * n; pricedCount += n; }
   }
   if(pricedCount === 0 && pendingCount === 0){
-    portfolioValueEl.style.display = 'none';
+    statValueEl.textContent = 'n/a';
+    valueNoteEl.style.display = 'none';
     return;
   }
+  statValueEl.textContent = `${totalValue.toFixed(3)} SOL` + (pendingCount > 0 ? '…' : '');
   const notes = [];
-  if(pendingCount > 0) notes.push(`${pendingCount} still pricing…`);
+  if(pendingCount > 0) notes.push(`${pendingCount} still pricing`);
   if(unpricedCount > 0) notes.push(`${unpricedCount} with no Magic Eden floor data, not included`);
-  portfolioValueEl.style.display = 'block';
-  portfolioValueEl.innerHTML =
-    `Estimated portfolio value: <b>${totalValue.toFixed(3)} SOL</b> — sum of each held asset's collection floor price` +
-    (notes.length ? `<span class="note">${notes.join(' · ')}</span>` : '');
+  valueNoteEl.style.display = 'block';
+  valueNoteEl.textContent = 'Estimated using each comic’s current Magic Eden collection floor — the going market rate for that print, not necessarily what your specific serial would sell for.' +
+    (notes.length ? ` (${notes.join(' · ')})` : '');
 }
 
 // Flat, price-independent card list — built once right after assets
 // load, since which title/count a card represents never changes, only
-// its price display does.
+// its price display does. cardItemsIndex holds every owned copy behind
+// each card (keyed by collection+title), used by the "see each copy I
+// hold" panel — kept separate from flatCards itself so flatCards stays a
+// plain, cheap-to-sort array.
+const cardItemsIndex = new Map();
+function cardIdFor(key, title){ return key + '::' + title; }
 function buildFlatCards(){
   flatCards = [];
+  cardItemsIndex.clear();
   for(const key of Object.keys(allGroups)){
     const g = allGroups[key];
-    for(const { representative: item, count } of groupByName(g.items)){
-      flatCards.push({ key, collName: g.name, title: cleanTitle(item.name) || item.name, image: item.image, mint: item.mint, count });
+    for(const { representative: item, count, items } of groupByName(g.items)){
+      const title = cleanTitle(item.name) || item.name;
+      const id = cardIdFor(key, title);
+      cardItemsIndex.set(id, { title, collName: g.name, items });
+      flatCards.push({ key, id, collName: g.name, title, image: item.image, mint: item.mint, count, rarity: normalizeRarity(item.attributes) });
     }
   }
 }
@@ -468,25 +743,74 @@ function renderAll(){
   if(sortMode === 'price-desc'){
     cards.sort((a, b) => (b.floor ?? -Infinity) - (a.floor ?? -Infinity));
   }
-
-  shelfEl.innerHTML = cards.map(c => {
-    const pdpUrl = `https://magiceden.io/item-details/${c.mint}`;
-    const tilt = hashTilt(c.mint) + 'deg';
+  // Dividers only make sense in default (collection-grouped) order — in
+  // price-sorted order cards from different collections interleave, so a
+  // per-collection tab would sit in the middle of an unrelated run of cards.
+  let lastKey = null;
+  const html = [];
+  for(const c of cards){
+    if(sortMode === 'default' && c.key !== lastKey){
+      html.push(`<div class="shelf-divider"><span>${esc(c.collName)}</span></div>`);
+      lastKey = c.key;
+    }
     const priceTagText = c.floor === null || c.floor === undefined ? (c.floor === null ? 'no ME data' : '…') : `${c.floor.toFixed(3)} SOL`;
+    const priceTagHtml = `<div class="price-tag ${c.floor ? '' : 'unavailable'}">${priceTagText}</div>`;
+    html.push(comicCardHtml({
+      mint: c.mint, image: c.image, rarity: c.rarity, count: c.count,
+      key: c.key, collName: c.collName, title: c.title, priceTagHtml,
+    }));
+  }
+  shelfEl.innerHTML = html.join('');
+}
+
+function shortMint(m){ return m.length > 10 ? `${m.slice(0, 4)}…${m.slice(-4)}` : m; }
+
+function openCopiesModal(id){
+  const entry = cardItemsIndex.get(id);
+  if(!entry) return;
+  document.getElementById('copies-modal-title').textContent = entry.title;
+  document.getElementById('copies-modal-sub').textContent =
+    `${entry.collName} — you own ${entry.items.length} cop${entry.items.length !== 1 ? 'ies' : 'y'}`;
+  document.getElementById('copies-modal-grid').innerHTML = entry.items.map(item => {
+    const pdpUrl = `https://magiceden.io/item-details/${item.mint}`;
+    const rarity = normalizeRarity(item.attributes);
     return `
-      <a class="comic" style="--tilt:${tilt}" href="${esc(pdpUrl)}" target="_blank" rel="noopener">
-        ${c.image ? `<img class="cover" src="${esc(c.image)}" loading="lazy" onerror="this.style.opacity=0.2">` : `<div class="no-preview">No preview available</div>`}
-        ${c.count > 1 ? `<div class="qty-sticker">&times;${c.count}</div>` : ''}
-        <div class="price-tag ${c.floor ? '' : 'unavailable'}">${priceTagText}</div>
-        <div class="caption">
-          <div class="sub">${esc(c.collName)}</div>
-          <div class="name">${esc(c.title)}</div>
-          <div class="me-tag">Magic Eden &#8599;</div>
-        </div>
+      <a class="copy-card" href="${esc(pdpUrl)}" target="_blank" rel="noopener">
+        ${item.image ? `<img src="${esc(item.image)}" loading="lazy" onerror="this.style.opacity=0.2">` : `<div class="no-preview">No preview</div>`}
+        ${rarity ? `<div class="comic-rarity rarity-${rarity.toLowerCase()}">${esc(rarity)}</div>` : ''}
+        <div class="copy-serial">${esc(shortMint(item.mint))}</div>
+        <div class="copy-me-tag">Magic Eden &#8599;</div>
       </a>
     `;
   }).join('');
+  document.getElementById('copies-modal').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
 }
+function closeCopiesModal(){
+  document.getElementById('copies-modal').style.display = 'none';
+  document.body.style.overflow = '';
+}
+document.getElementById('copies-modal-close').addEventListener('click', closeCopiesModal);
+document.getElementById('copies-modal-backdrop').addEventListener('click', closeCopiesModal);
+document.addEventListener('keydown', (e) => {
+  if(e.key === 'Escape') closeCopiesModal();
+});
+// Delegated (not bound per-card) so a click on any multi-copy card works
+// no matter how many times the shelf has been re-rendered since — render()
+// and renderAll() both rebuild shelfEl.innerHTML wholesale, which would
+// silently drop any per-element listener bound directly to a card.
+shelfEl.addEventListener('click', (e) => {
+  const trigger = e.target.closest('[data-card-id]');
+  if(!trigger) return;
+  openCopiesModal(trigger.dataset.cardId);
+});
+shelfEl.addEventListener('keydown', (e) => {
+  if(e.key !== 'Enter' && e.key !== ' ') return;
+  const trigger = e.target.closest('[data-card-id]');
+  if(!trigger) return;
+  e.preventDefault();
+  openCopiesModal(trigger.dataset.cardId);
+});
 
 sortDefaultBtn.addEventListener('click', () => {
   sortMode = 'default';

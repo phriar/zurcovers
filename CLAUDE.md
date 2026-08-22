@@ -10,15 +10,35 @@ No build step, no package manager, no framework — each page is a single self-c
 
 **Fully separate from ZurVault's repo, Worker, and KV namespace.** Nothing here touches `zurvault-proxy` or `ZURVAULT_DC_CACHE`. The Worker in this repo (`zurcovers-proxy`) has its own KV namespace (`ZURCOVERS_CACHE`).
 
-**Scope is intentionally narrow: two wallet-based pages, nothing else.** There is no marketplace-wide listings/sales feed in this repo (that's ZurVault's job) — a `listings.html` mirroring ZurVault's aggregator was built and explicitly rejected in this repo's history; don't reintroduce it without being asked. Both pages require a visitor-supplied wallet address before anything renders.
+**Scope is intentionally narrow: wallet-based pages, nothing else.** There is no marketplace-wide listings/sales feed in this repo (that's ZurVault's job) — a `listings.html` mirroring ZurVault's aggregator was built and explicitly rejected in this repo's history; don't reintroduce it without being asked. Every page requires a visitor-supplied wallet address before anything renders.
+
+## Product philosophy: ZurVault finds, ZurCovers enjoys
+
+As of 2026-08, ZurCovers and ZurVault are deliberately positioned as complements, not overlapping tools:
+
+- **ZurVault** = find comics. Search, discover, hunt listings, compare prices, find keys/low serials/deals.
+- **ZurCovers** = enjoy the comics you already own. Enter a wallet, browse the covers, understand rarity and floor value, spot duplicates, eventually spot gaps in a run.
+
+The mental model: *ZurVault helps you find the books. ZurCovers lets you enjoy the collection.* Keep that split in mind for any UX decision — if a feature primarily helps someone search for comics to buy, it probably belongs on ZurVault, not here. Don't visually merge the two products; family resemblance is fine, but ZurCovers should read as a collection/display experience (warm, tactile, comic-shop), not a search utility.
+
+**`wallet-2.html` ("The Long Box") is the primary/flagship experience**, linked from `index.html`'s main CTA — a shelf-style browser (tilted covers, physical price tags, `×N` duplicate badges, collection divider tabs) meant to feel like flipping through a long box, not reading an analytics dashboard. `wallet.html` (Grid) and `collections.html` (Collections/rarity drill-down) remain as the deeper/utility views for visitors who want more data — preserved, just no longer the front door. Nav order across all pages, by convention: Long Box → Collections → Grid → Slideshow → Home.
+
+**`activity.html` is intentionally unlinked from the nav** (as of 2026-08) — kept exactly as-is, still live and reachable by direct URL/bookmark, just not part of the new site structure. Don't add it back into any page's `nav-links` without being asked, and don't otherwise modify it.
+
+**"Complete the Run" gap detection** (on the Long Box) works off issue numbers parsed from each comic's own name (e.g. trailing `#7`) — it can only spot a hole *between* the lowest and highest issue number already owned in a wallet, never whether a series continues past the highest owned issue or started before the lowest. There is no external catalog of full published runs wired into ZurCovers. One exists, though: ZurVault's own `collections-map.js` (in the separate `zurvault` repo) maintains a hand-curated `symbols` array per series — every known Magic Eden collection symbol for that series' issues. Cross-referencing a wallet's owned symbols against that list per series would enable *true* completion tracking (including issues before/after what's currently owned), but that requires either fetching/parsing that file live from zurvault.com or duplicating and syncing it here — real cross-repo infrastructure, not yet built. Don't fake this by hardcoding a partial issue-count; if it's built, it should read that real data.
+
+**ZurVault deep links** ("Hunt the missing books on ZurVault") are a best-effort slug guess at `zurvault.com/collection.html?s=<slug>`, matching the `id` convention ZurVault's `collections-map.js` uses (e.g. "Absolute Batman" → `absolute-batman`) — not a synced lookup, so it degrades gracefully via ZurVault's own "no series matches" fallback when the guess misses.
 
 ## Files
 
 | File | What it does |
 |---|---|
-| `index.html` | Landing page — read-only disclosure, links to `wallet.html` and `slideshow.html`. |
-| `wallet.html` | Public page. Visitor pastes a public Solana wallet address; shows every DC comic cover it holds, grouped by collection, with the current Magic Eden floor price where that collection is still resolvable there. |
-| `slideshow.html` | Public page. Same wallet-address input, but full-screen kiosk-style playback instead of a grid — collection picker → shuffle/playback, NFT attributes (traits, rarity) shown at the bottom of each frame. |
+| `index.html` | Landing page — wallet-address input front and center (hands off to `wallet-2.html`, no fetch logic of its own), disclosure, secondary links to the deeper views. |
+| `wallet-2.html` | **Flagship "Long Box" page.** Visitor pastes a public Solana wallet address; shelf-style browse of every DC comic cover it holds — duplicate `×N` badges, rarity, collection divider tabs, collector summary (unique/total/collections/est. floor value), "Complete the Run" gap detection, current Magic Eden floor price on each price tag. |
+| `wallet.html` | "Grid" utility view. Same wallet-address input, traditional data-dense grid — group by collection/rarity, sort, search, gap-summary-on-search, unopened-pack detection. |
+| `collections.html` | "Collections" view — browse by collection first, drill into rarity tiers owned and current lowest listed price per tier. |
+| `activity.html` | "Activity" view — Magic Eden buying-activity log for a wallet, by collection. |
+| `slideshow.html` | "Slideshow" — full-screen kiosk-style playback, collection picker → shuffle/playback, NFT attributes (traits, rarity) shown on each frame. |
 | `zurcovers-proxy-worker.js` | Source for the Cloudflare Worker. **In this repo but not auto-deployed** — committing/pushing has zero effect on the live Worker until it's manually pasted into the Cloudflare dashboard. |
 | `CNAME` | GitHub Pages custom domain (`zurcovers.com`). |
 

@@ -30,61 +30,63 @@ html, body { width:100%; height:100%; background:var(--ink); overflow:hidden; }
   background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-/* ENTRY — public-address entry only. No wallet-connect button anywhere on
-   this page: a visible address input sitting next to a connect button is a
-   recognized phishing/drainer pattern, and this page has no signing flow to
-   protect against that in the first place, so there's nothing to put next
-   to. Background is a plain radial glow, not a pulled-in third-party image
-   — matches index.html rather than borrowing art from an unrelated site. */
+/* ENTRY — public-address entry only, built from the same header/
+   entry-panel/disclosure-box components as wallet.html/collections.html
+   rather than a bespoke centered form, so this page reads as one of the
+   family instead of a one-off kiosk skin. Still a fixed full-screen
+   overlay (toggled via .hide) since it sits alongside the picker/frame
+   views in the same document, but scrolls internally rather than forcing
+   everything to fit one viewport. No wallet-connect button anywhere on
+   this page: a visible address input sitting next to a connect button is
+   a recognized phishing/drainer pattern, and this page has no signing
+   flow to protect against that in the first place, so there's nothing to
+   put next to it. */
 #entry {
-  position:fixed; inset:0; display:flex; flex-direction:column;
-  align-items:center; justify-content:center; z-index:100;
-  background:radial-gradient(ellipse at center, rgba(107,47,214,0.18), transparent 62%), var(--ink);
-  padding:32px;
+  position:fixed; inset:0; z-index:100; overflow-y:auto; background:var(--ink);
 }
 #entry.hide { display:none; }
-#entry > * { position:relative; z-index:1; }
 
-.e-wordmark { font-family:'DM Mono',monospace; font-size:.7rem; letter-spacing:.5em; color:rgba(255,255,255,0.25); text-transform:uppercase; margin-bottom:22px; text-decoration:none; }
-.e-tagline { font-family:'Cormorant Garamond',serif; font-size:clamp(2.1rem,6vw,3rem); font-weight:300; letter-spacing:.02em; color:rgba(255,255,255,0.92); margin-bottom:24px; text-align:center; line-height:1.15; }
-
-.e-disclaimer {
-  max-width:420px; margin-bottom:14px; padding:12px 16px;
-  border:1px solid rgba(77,232,255,0.2); border-radius:4px; background:rgba(77,232,255,0.05);
-  font-family:'DM Mono',monospace; font-size:.78rem; line-height:1.7; color:rgba(255,255,255,0.6); text-align:center;
+#entry header {
+  padding:44px 32px 22px; border-bottom:1px solid var(--border);
+  background:radial-gradient(ellipse at top, rgba(107,47,214,0.16), transparent 60%);
 }
-.e-disclaimer strong { color:rgba(255,255,255,0.8); font-weight:500; }
-
-/* Security warning gets its own box, visually distinct from the legal/
-   trust disclosure below it — different kind of information, reads
-   better skimmed separately. */
-.e-warning {
-  max-width:420px; margin-bottom:14px; padding:12px 16px;
-  border:1px solid rgba(224,122,95,0.3); border-radius:4px; background:rgba(224,122,95,0.07);
-  font-family:'DM Mono',monospace; font-size:.78rem; line-height:1.7; color:rgba(255,255,255,0.65); text-align:center;
+#entry header .brand { font-size:.7rem; letter-spacing:.4em; color:rgba(255,255,255,0.22); text-transform:uppercase; }
+#entry header .brand a { color:rgba(255,255,255,0.22); text-decoration:none; }
+#entry header .brand a:hover { color:var(--gold); }
+#entry header h1 {
+  font-family:'Cormorant Garamond',serif; font-weight:300; letter-spacing:.02em;
+  font-size:clamp(1.9rem,5vw,2.8rem); color:rgba(255,255,255,0.92); margin-top:10px;
 }
-.e-warning strong { color:#e07a5f; font-weight:500; }
+#entry header h1 span { color:var(--gold); }
+#entry header .sub { margin-top:10px; font-size:.85rem; letter-spacing:.02em; line-height:1.7; color:rgba(255,255,255,0.55); max-width:560px; }
 
-.e-form { display:flex; flex-direction:column; align-items:center; gap:10px; width:100%; max-width:320px; }
-.e-input {
-  width:100%; background:rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.14); color:rgba(255,255,255,0.85);
-  font-family:'DM Mono',monospace; font-size:.72rem; letter-spacing:.04em; padding:13px 14px; border-radius:2px;
-  outline:none; text-align:center;
-}
-.e-input::placeholder { color:rgba(255,255,255,0.22); }
-.e-input:focus { border-color:rgba(143,111,232,0.5); }
-.e-btn {
-  width:100%; background:linear-gradient(135deg, var(--deep), var(--gold)); border:1px solid rgba(143,111,232,0.5);
-  color:#fff; font-family:'DM Mono',monospace; font-size:.66rem; letter-spacing:.2em; text-transform:uppercase;
-  padding:13px 14px; border-radius:2px; cursor:pointer; transition:filter .15s;
-}
-.e-btn:hover { filter:brightness(1.12); }
-.e-btn:disabled { filter:grayscale(1) brightness(0.7); cursor:default; }
-.e-err { font-family:'DM Mono',monospace; font-size:.62rem; letter-spacing:.05em; color:#e07a5f; text-align:center; min-height:1.4em; }
+.nav-links { margin-top:16px; display:flex; gap:14px; flex-wrap:wrap; }
+.nav-links a { font-size:.62rem; letter-spacing:.16em; text-transform:uppercase; color:rgba(143,111,232,0.6); text-decoration:none; border:1px solid rgba(143,111,232,0.2); padding:6px 14px; border-radius:2px; transition:all .15s; }
+.nav-links a:hover { color:var(--gold); border-color:rgba(143,111,232,0.5); }
 
-.e-links { margin-top:22px; display:flex; gap:16px; }
-.e-links a { font-family:'DM Mono',monospace; font-size:.6rem; letter-spacing:.12em; color:rgba(143,111,232,0.55); text-decoration:none; text-transform:uppercase; }
-.e-links a:hover { color:var(--gold); }
+.entry-panel {
+  padding:18px 32px; border-bottom:1px solid var(--border);
+  display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+}
+.entry-panel input {
+  flex:1; min-width:220px; background:rgba(0,0,0,0.5); border:1px solid var(--border); color:rgba(255,255,255,0.85);
+  font-family:'DM Mono',monospace; font-size:.72rem; padding:11px 13px; border-radius:2px; outline:none;
+}
+.entry-panel input:focus { border-color:rgba(143,111,232,0.5); }
+.entry-panel button {
+  background:linear-gradient(135deg, var(--deep), var(--gold)); border:1px solid rgba(143,111,232,0.5); color:#fff;
+  font-family:'DM Mono',monospace; font-size:.62rem; letter-spacing:.16em; text-transform:uppercase;
+  padding:11px 18px; border-radius:2px; cursor:pointer; transition:filter .15s;
+}
+.entry-panel button:hover { filter:brightness(1.12); }
+
+.e-err { padding:0 32px; font-family:'DM Mono',monospace; font-size:.62rem; letter-spacing:.05em; color:#e07a5f; min-height:1.4em; }
+
+.disclosures { padding:16px 32px 40px; display:flex; flex-direction:column; gap:10px; }
+.disclosure-box { padding:12px 16px; border-radius:4px; font-size:.76rem; line-height:1.7; }
+.disclosure-box.warn { border:1px solid rgba(224,122,95,0.3); background:rgba(224,122,95,0.07); color:rgba(255,255,255,0.65); }
+.disclosure-box.warn strong { color:#e07a5f; font-weight:500; }
+.disclosure-box.info { border:1px solid rgba(77,232,255,0.2); background:rgba(77,232,255,0.05); color:rgba(255,255,255,0.5); }
 
 /* COLLECTION PICKER */
 #picker { position:fixed; inset:0; display:none; flex-direction:column; z-index:100; background:var(--ink); overflow:hidden; }
@@ -194,6 +196,7 @@ html, body { width:100%; height:100%; background:var(--ink); overflow:hidden; }
 @keyframes spin { to { transform:rotate(360deg); } }
 
 .home-link {
+  display:none; /* shown via JS once the entry screen (with its own header/nav) is hidden */
   position:fixed; top:16px; left:16px; z-index:20;
   font-family:'DM Mono',monospace; font-size:.5rem; letter-spacing:.3em;
   color:rgba(255,255,255,0.3); text-transform:uppercase; text-decoration:none;
@@ -210,26 +213,27 @@ html, body { width:100%; height:100%; background:var(--ink); overflow:hidden; }
 
 <!-- ENTRY -->
 <div id="entry">
-  <a href="index.html" style="text-decoration:none;"><div class="e-wordmark">zurcovers</div></a>
-  <div class="e-tagline">Your covers.<br>Full screen.</div>
+  <header>
+    <div class="brand"><a href="index.html">zurcovers</a> / Slideshow</div>
+    <h1>Full-Screen <span>Slideshow</span></h1>
+    <div class="sub">Paste a public Solana wallet address for full-screen kiosk playback of every DC comic cover it holds — collection picker, shuffle, and floor price/NFT attributes on every frame. Public address only — no wallet connection, no signing.</div>
+    <div class="nav-links">
+      <a href="wallet-2.html">Long Box</a>
+      <a href="collections.html">Collections</a>
+      <a href="wallet.html">Grid</a>
+      <a href="index.html">Home</a>
+    </div>
+  </header>
 
-  <div class="e-warning">
-    <strong>Never share your private key or seed phrase with anyone, including here.</strong> This page only ever needs a <strong>public</strong> wallet address — the same address anyone could already look up on a block explorer.
+  <div class="entry-panel">
+    <input type="text" id="wallet-input" placeholder="paste a public wallet address" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <button id="go-btn">View Slideshow</button>
   </div>
+  <div class="e-err" id="wallet-err"></div>
 
-  <div class="e-disclaimer">
-    Unofficial fan project &mdash; not affiliated with, endorsed by, or sponsored by DC Comics, Warner Bros. Discovery, Candy Digital, or Magic Eden. No wallet connection, no signing, ever &mdash; nothing here can move or approve anything.
-  </div>
-
-  <div class="e-form">
-    <input class="e-input" id="wallet-input" type="text" placeholder="paste a public wallet address" autocapitalize="off" autocorrect="off" spellcheck="false">
-    <button class="e-btn" id="go-btn">View Slideshow</button>
-    <div class="e-err" id="wallet-err"></div>
-  </div>
-
-  <div class="e-links">
-    <a href="wallet.html">My Wallet (List View)</a>
-    <a href="index.html">Home</a>
+  <div class="disclosures">
+    <div class="disclosure-box warn"><strong>Never share your private key or seed phrase with anyone, including here.</strong> This page only ever needs a <strong>public</strong> wallet address — the same address anyone could already look up on a block explorer. It never asks for anything else.</div>
+    <div class="disclosure-box info">Unofficial fan project &mdash; not affiliated with, endorsed by, or sponsored by DC Comics, Warner Bros. Discovery, Candy Digital, or Magic Eden. No wallet connection, no signing, ever &mdash; nothing here can move or approve anything.</div>
   </div>
 </div>
 
@@ -303,7 +307,7 @@ html, body { width:100%; height:100%; background:var(--ink); overflow:hidden; }
     <button class="ctrl-btn" id="fullscreen-btn" onclick="toggleFullscreen()">&#9974; Fullscreen</button>
     <button class="ctrl-btn" onclick="prevNFT()">&#8592;</button>
     <button class="ctrl-btn" onclick="nextNFT()">&#8594;</button>
-    <a class="ctrl-btn" href="wallet.html">My Wallet</a>
+    <a class="ctrl-btn" href="wallet-2.html">Long Box</a>
     <button class="ctrl-btn" onclick="backToEntry()" style="opacity:.4">Change Wallet</button>
   </div>
 </div>
@@ -333,6 +337,7 @@ var pickerSortMode = 'recent'; // 'recent' | 'count'
 var nftSortMode    = 'recent'; // 'recent' | 'az'
 
 var entryEl   = document.getElementById('entry');
+var homeLinkEl = document.querySelector('.home-link'); // hidden while entry's own header (with its own zurcovers/Home links) is showing, shown everywhere else
 var pickerEl  = document.getElementById('picker');
 var nftListEl = document.getElementById('nft-list');
 var frameEl   = document.getElementById('frame');
@@ -366,6 +371,7 @@ function backToEntry() {
   nftListEl.classList.remove('show');
   frameEl.classList.remove('show');
   entryEl.classList.remove('hide');
+  homeLinkEl.style.display = 'none';
   wallet = null; allNFTs = []; nfts = [];
 }
 
@@ -385,6 +391,7 @@ function backToList() {
 async function startWithWallet(addr) {
   wallet = addr;
   entryEl.classList.add('hide');
+  homeLinkEl.style.display = 'block';
   loadingEl.classList.add('show');
   await fetchAllNFTs();
 }
@@ -486,6 +493,7 @@ async function fetchAllNFTs() {
     console.error(e);
     loadingEl.classList.remove('show');
     entryEl.classList.remove('hide');
+    homeLinkEl.style.display = 'none';
     walletErrEl.textContent = 'Could not load that wallet: ' + e.message;
   }
 }
