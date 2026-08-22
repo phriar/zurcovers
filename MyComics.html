@@ -137,6 +137,12 @@
     border:1px solid rgba(45,230,208,0.22); background:rgba(45,230,208,0.06); color:rgba(243,239,230,0.65);
   }
   .copies-modal-missing.has-missing{ border-color:rgba(192,57,43,0.35); background:rgba(192,57,43,0.1); color:rgba(243,239,230,0.8); }
+  .missing-hunt-link{
+    display:inline-block; margin-top:8px; font-family:'DM Mono',monospace; font-size:.62rem; letter-spacing:.08em;
+    text-transform:uppercase; color:var(--tag-red); background:var(--paper); text-decoration:none;
+    padding:5px 11px; border-radius:2px; transition:filter .15s;
+  }
+  .missing-hunt-link:hover{ filter:brightness(0.92); }
   .copies-modal-missing b{ color:var(--gold); font-weight:500; }
   .copies-modal-grid{ margin-top:18px; display:grid; grid-template-columns:repeat(auto-fill,minmax(110px,1fr)); gap:18px; }
   .copy-card{ text-decoration:none; display:block; text-align:center; }
@@ -369,6 +375,19 @@ function normalizeRarity(attributes){
   const cleaned = (match ? match[1] : raw).trim().toLowerCase();
   const key = RARITY_ALIASES[cleaned];
   return key ? RARITY_LABELS[key] : null;
+}
+
+// Best-effort slug matching ZurVault's own collections-map.js id
+// convention (e.g. "Absolute Batman" -> "absolute-batman") — a guess, not
+// a synced lookup table. Points at ZurVault's series page rather than
+// trying to deep-link a specific rarity: neither site can filter listings
+// by rarity, and browsing the whole series is arguably more useful anyway
+// (lets a visitor pick by mint number/serial, not just the rarity tier
+// that happened to be missing). Degrades gracefully on a miss — ZurVault's
+// collection.html already shows its own "no series matches that" message
+// with a link back to browsing manually.
+function slugify(s){
+  return String(s).toLowerCase().replace(/'/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
 function setStatus(msg, isErr){
@@ -709,7 +728,9 @@ function renderCollectionModal(key){
   } else {
     missingEl.style.display = 'block';
     missingEl.classList.add('has-missing');
-    missingEl.innerHTML = `Missing rarities (currently listed, not owned yet): <b>${missing.map(esc).join(', ')}</b>`;
+    const zvUrl = `https://zurvault.com/collection.html?s=${encodeURIComponent(slugify(g.name))}`;
+    missingEl.innerHTML = `Missing rarities (currently listed, not owned yet): <b>${missing.map(esc).join(', ')}</b><br>` +
+      `<a class="missing-hunt-link" href="${esc(zvUrl)}" target="_blank" rel="noopener">See what's for sale on ZurVault &#8599;</a>`;
   }
 
   document.getElementById('copies-modal-grid').innerHTML = tiles.map(collectionModalTileHtml).join('');
