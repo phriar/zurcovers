@@ -144,14 +144,6 @@
   <div class="more-views">
     <div class="label">Deeper views, same wallet</div>
     <div class="page-list">
-      <a class="page-card" href="collections.html">
-        <div class="page-name">Collections &#8599;</div>
-        <div class="page-desc">Browse by collection first, then drill into rarity tiers and current lowest listed price for each.</div>
-      </a>
-      <a class="page-card" href="wallet.html">
-        <div class="page-name">Grid &#8599;</div>
-        <div class="page-desc">The traditional data-dense grid — search, group by rarity, sort by value.</div>
-      </a>
       <a class="page-card" href="slideshow.html">
         <div class="page-name">Slideshow &#8599;</div>
         <div class="page-desc">Full-screen kiosk playback, collection picker and shuffle, attributes on every frame.</div>
@@ -172,7 +164,7 @@ const openBtnEl = document.getElementById('open-btn');
 const errEl = document.getElementById('entry-err');
 
 // This page never fetches wallet data itself — it only captures the
-// address and hands off to wallet-2.html (the Long Box), which already
+// address and hands off to MyComics.html (the Long Box), which already
 // owns that loading logic. Keeping one copy of the fetch/parse/render
 // pipeline avoids two pages drifting out of sync with each other.
 function openLongBox(){
@@ -182,7 +174,7 @@ function openLongBox(){
     return;
   }
   localStorage.setItem(WALLET_KEY, addr);
-  window.location.href = 'wallet-2.html?wallet=' + encodeURIComponent(addr);
+  window.location.href = 'MyComics.html?wallet=' + encodeURIComponent(addr);
 }
 openBtnEl.addEventListener('click', openLongBox);
 walletInputEl.addEventListener('keydown', (e) => { if(e.key === 'Enter') openLongBox(); });
