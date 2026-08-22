@@ -713,7 +713,7 @@ const candyFetchInFlight = new Set();
 function ensureCandyUrl(item, key){
   if(item.candyUrl !== undefined || candyFetchInFlight.has(item.mint)) return;
   candyFetchInFlight.add(item.mint);
-  queueOnDemand(() => resolveCandyUrl(item.mint)).then((url) => {
+  queueCandyLookup(() => resolveCandyUrl(item.mint)).then((url) => {
     item.candyUrl = url;
     candyFetchInFlight.delete(item.mint);
     if(openModalKey === key) renderCollectionModal(key);
@@ -786,19 +786,26 @@ function renderCollectionModal(key){
   document.getElementById('copies-modal-grid').innerHTML = tiles.map(collectionModalTileHtml).join('');
 }
 
-// Serializes on-demand rarity-floor fetches (one per collection panel
-// opened) LOOKUP_PACE_MS apart, regardless of how quickly a visitor taps
-// through several shelf cards in a row — without this, opening panel
-// after panel fired each fetch immediately, and enough of them close
-// together tripped Magic Eden's real per-minute rate limit. Shared by
-// every on-demand lookup (rarity floors AND per-comic Candy links below)
-// so they queue against each other too, not just against themselves.
-let onDemandQueue = Promise.resolve();
-function queueOnDemand(fn){
-  const run = onDemandQueue.then(fn);
-  onDemandQueue = run.then(() => sleep(LOOKUP_PACE_MS)).catch(() => sleep(LOOKUP_PACE_MS));
-  return run;
+// Serializes a class of on-demand fetches LOOKUP_PACE_MS apart, regardless
+// of how quickly a visitor triggers several of them in a row — without
+// this, opening panel after panel fired each fetch immediately, and
+// enough of them close together tripped Magic Eden's real per-minute rate
+// limit. Two independent queues (not one shared one) so the rarity check —
+// the thing a visitor is actually watching a "Checking…" message for —
+// never has to wait behind a pile of per-comic Candy-link lookups queued
+// just ahead of it; a collection with several distinct comics was
+// otherwise visibly slow to report what's missing, stuck behind every one
+// of that collection's own Candy lookups first.
+function makeQueue(){
+  let chain = Promise.resolve();
+  return function(fn){
+    const run = chain.then(fn);
+    chain = run.then(() => sleep(LOOKUP_PACE_MS)).catch(() => sleep(LOOKUP_PACE_MS));
+    return run;
+  };
 }
+const queueRarityCheck = makeQueue();
+const queueCandyLookup = makeQueue();
 
 // Shared by both the initial open and the retry link — only actually
 // fetches once per collection (skips straight through once g.rarityFloors
@@ -811,7 +818,7 @@ async function ensureRarityFloors(key){
     g.rarityFloors = {}; // no Magic Eden symbol at all for this collection — nothing to check, and retrying won't change that
     return;
   }
-  const result = await queueOnDemand(() => fetchListingsRarityFloors(g.symbol));
+  const result = await queueRarityCheck(() => fetchListingsRarityFloors(g.symbol));
   if(result !== null){
     g.rarityFloors = result;
     g.rarityFetchFailed = false;
