@@ -383,18 +383,6 @@ function normalizeRarity(attributes){
   return key ? RARITY_LABELS[key] : null;
 }
 
-// Best-effort slug matching ZurVault's own collections-map.js id
-// convention (e.g. "Absolute Batman" -> "absolute-batman") — a guess, not
-// a synced lookup table. Points at ZurVault's series page rather than
-// trying to deep-link a specific rarity: neither site can filter listings
-// by rarity, and browsing the whole series is arguably more useful anyway
-// (lets a visitor pick by mint number/serial, not just the rarity tier
-// that happened to be missing). Degrades gracefully on a miss — ZurVault's
-// collection.html already shows its own "no series matches that" message
-// with a link back to browsing manually.
-function slugify(s){
-  return String(s).toLowerCase().replace(/'/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-}
 
 function setStatus(msg, isErr){
   statusEl.innerHTML = (isErr ? '' : '<span class="dot"></span>') + msg;
@@ -778,9 +766,15 @@ function renderCollectionModal(key){
   } else {
     missingEl.style.display = 'block';
     missingEl.classList.add('has-missing');
-    const zvUrl = `https://zurvault.com/collection.html?s=${encodeURIComponent(slugify(g.name))}`;
+    // Links to ZurVault's home page (its own "Latest DC Listings" view),
+    // not a specific series page — an earlier version guessed a series
+    // slug from the collection name, but most DC3 collection names bake
+    // in the issue number and year range (e.g. "Green Lantern
+    // (1960-1986) #87"), which will essentially never match ZurVault's
+    // clean series slugs (e.g. "green-lantern"). The home page always
+    // works and still gets someone to "what's for sale right now."
     missingEl.innerHTML = `Missing rarities (currently listed, not owned yet): <b>${missing.map(esc).join(', ')}</b><br>` +
-      `<a class="missing-hunt-link" href="${esc(zvUrl)}" target="_blank" rel="noopener">See what's for sale on ZurVault &#8599;</a>`;
+      `<a class="missing-hunt-link" href="https://zurvault.com/" target="_blank" rel="noopener">See what's for sale on ZurVault &#8599;</a>`;
   }
 
   document.getElementById('copies-modal-grid').innerHTML = tiles.map(collectionModalTileHtml).join('');
