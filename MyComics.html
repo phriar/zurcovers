@@ -276,8 +276,6 @@
   <h1>The <span>Long Box</span></h1>
   <div class="sub">Everything a public Solana wallet holds, arranged like a long box in a comic shop — one cover per collection, tap it to see everything you own inside. Public address only — no wallet connection, no signing.</div>
   <div class="nav-links">
-    <a href="collections.html">Collections</a>
-    <a href="wallet.html">Grid</a>
     <a href="slideshow.html">Slideshow &#8599;</a>
     <a href="index.html">Home</a>
   </div>
@@ -418,10 +416,17 @@ async function fetchFloorPrice(symbol){
 // active listings (first 100). Also doubles as "which rarity tiers exist
 // at all right now" for the missing-rarities check below — the same data
 // wallet.html/collections.html already fetch for their own rarity views.
+// Returns null on a failed/blocked request (network error, non-OK status
+// — including a 429 from Magic Eden's real per-minute rate limit) so the
+// caller can tell "couldn't check" apart from "checked, found nothing" —
+// collapsing those together previously meant a rate-limited fetch got
+// permanently cached as "this collection has no rarity tiers," silently
+// hiding the missing-rarities line for whatever a visitor happened to
+// click after the limit kicked in.
 async function fetchListingsRarityFloors(symbol){
   try{
     const res = await fetch(`${ME_BASE}/collections/${symbol}/listings?offset=0&limit=100`);
-    if(!res.ok) return {};
+    if(!res.ok) return null;
     const data = await res.json();
     const map = {};
     for(const item of (Array.isArray(data) ? data : [])){
@@ -432,7 +437,7 @@ async function fetchListingsRarityFloors(symbol){
     }
     return map;
   }catch(e){
-    return {};
+    return null;
   }
 }
 
@@ -692,7 +697,9 @@ function renderCollectionModal(key){
   if(missing === undefined){
     missingEl.style.display = 'block';
     missingEl.classList.remove('has-missing');
-    missingEl.textContent = 'Checking which rarities are currently available…';
+    missingEl.innerHTML = g.rarityFetchFailed
+      ? `Couldn't check current rarities right now — Magic Eden may be rate-limiting lookups. <a href="#" data-retry="${esc(key)}">Retry &#8635;</a>`
+      : 'Checking which rarities are currently available…';
   } else if(missing === null){
     missingEl.style.display = 'none';
   } else if(missing.length === 0){
@@ -708,6 +715,38 @@ function renderCollectionModal(key){
   document.getElementById('copies-modal-grid').innerHTML = tiles.map(collectionModalTileHtml).join('');
 }
 
+// Serializes on-demand rarity-floor fetches (one per collection panel
+// opened) LOOKUP_PACE_MS apart, regardless of how quickly a visitor taps
+// through several shelf cards in a row — without this, opening panel
+// after panel fired each fetch immediately, and enough of them close
+// together tripped Magic Eden's real per-minute rate limit.
+let rarityFetchQueue = Promise.resolve();
+function queueRarityFetch(symbol){
+  const run = rarityFetchQueue.then(() => fetchListingsRarityFloors(symbol));
+  rarityFetchQueue = run.then(() => sleep(LOOKUP_PACE_MS)).catch(() => sleep(LOOKUP_PACE_MS));
+  return run;
+}
+
+// Shared by both the initial open and the retry link — only actually
+// fetches once per collection (skips straight through once g.rarityFloors
+// is populated), and leaves it undefined (rather than caching a bad
+// result) on failure so the next open or retry tries again.
+async function ensureRarityFloors(key){
+  const g = allGroups[key];
+  if(!g || g.rarityFloors !== undefined) return;
+  if(!g.symbol){
+    g.rarityFloors = {}; // no Magic Eden symbol at all for this collection — nothing to check, and retrying won't change that
+    return;
+  }
+  const result = await queueRarityFetch(g.symbol);
+  if(result !== null){
+    g.rarityFloors = result;
+    g.rarityFetchFailed = false;
+  } else {
+    g.rarityFetchFailed = true;
+  }
+}
+
 async function openCollectionModal(key){
   const g = allGroups[key];
   if(!g) return;
@@ -715,11 +754,16 @@ async function openCollectionModal(key){
   renderCollectionModal(key);
   document.getElementById('copies-modal').style.display = 'flex';
   document.body.style.overflow = 'hidden';
-
-  if(g.rarityFloors === undefined){
-    g.rarityFloors = g.symbol ? await fetchListingsRarityFloors(g.symbol) : {};
-    if(openModalKey === key) renderCollectionModal(key);
-  }
+  await ensureRarityFloors(key);
+  if(openModalKey === key) renderCollectionModal(key);
+}
+async function retryRarityCheck(key){
+  const g = allGroups[key];
+  if(!g) return;
+  g.rarityFetchFailed = false;
+  renderCollectionModal(key); // back to "Checking…" immediately, not stuck on the failure message
+  await ensureRarityFloors(key);
+  if(openModalKey === key) renderCollectionModal(key);
 }
 function closeCopiesModal(){
   document.getElementById('copies-modal').style.display = 'none';
@@ -728,6 +772,12 @@ function closeCopiesModal(){
 }
 document.getElementById('copies-modal-close').addEventListener('click', closeCopiesModal);
 document.getElementById('copies-modal-backdrop').addEventListener('click', closeCopiesModal);
+document.getElementById('copies-modal-missing').addEventListener('click', (e) => {
+  const retryLink = e.target.closest('[data-retry]');
+  if(!retryLink) return;
+  e.preventDefault();
+  retryRarityCheck(retryLink.dataset.retry);
+});
 document.addEventListener('keydown', (e) => {
   if(e.key === 'Escape') closeCopiesModal();
 });
