@@ -272,12 +272,14 @@
 
   /* Shop inventory sticker — total items owned in this whole collection. */
   .qty-sticker{
-    /* Bottom-left, not top-right: cards tilt into each other along their
+    /* Top-left, not top-right: cards tilt into each other along their
        shared edge, and since a card later in the shelf's DOM order always
        paints on top of the one before it, a card's own top-right corner
-       is exactly what the next card over covers. Top-left is already
-       taken by the complete-set ribbon on cards that have both. */
-    position:absolute; bottom:-10px; left:-10px; transform:rotate(-8deg);
+       is exactly what the next card over covers. Not bottom-left either —
+       that's already crowded with the price tag and caption text right
+       underneath. The complete-set ribbon moved to bottom-left to make
+       room here, since it shows up less often than the copy count does. */
+    position:absolute; top:-10px; left:-10px; transform:rotate(-8deg);
     background:var(--tag-red); color:#fff; font-family:'Bangers',cursive; letter-spacing:.02em;
     font-size:.98rem; width:34px; height:34px; border-radius:50%;
     display:flex; align-items:center; justify-content:center;
@@ -289,7 +291,7 @@
      same way (computeMissingRarities) as the panel's own "Complete set"
      line, so the two never disagree. */
   .complete-ribbon{
-    position:absolute; top:-10px; left:-10px; transform:rotate(-5deg); z-index:1;
+    position:absolute; bottom:-10px; left:-10px; transform:rotate(-5deg); z-index:1;
     background:var(--gold); color:var(--wood-dark); font-family:'Bangers',cursive; letter-spacing:.02em;
     font-size:.78rem; padding:4px 10px; border-radius:2px;
     box-shadow:0 3px 6px rgba(0,0,0,0.4); white-space:nowrap;
