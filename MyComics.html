@@ -808,9 +808,26 @@ function priceTagHtmlFor(floor){
 // links straight out), since a "collection" here can hold anywhere from
 // one comic to dozens, and the panel is the only place that can show all
 // of them plus the missing-rarities check.
+// All distinct image URLs available anywhere in a collection, in item
+// order — the shelf card only ever shows one of these at a time, but
+// keeps the rest on hand as fallbacks (see handleShelfImgError) since a
+// meaningful share of assets come back from Helius with a broken/missing
+// image on any single item (confirmed in the Worker's own metadata-gap
+// handling), while a different item in the same collection often
+// resolves fine.
+function candidateImagesFor(items){
+  const seen = new Set();
+  const out = [];
+  for(const item of items){
+    if(item.image && !seen.has(item.image)){ seen.add(item.image); out.push(item.image); }
+  }
+  return out;
+}
+
 function collectionCardHtml(key){
   const g = allGroups[key];
-  const image = g.items.find(i => i.image)?.image || '';
+  const candidates = candidateImagesFor(g.items);
+  const image = candidates[0] || '';
   const distinctCount = groupByName(g.items).size;
   const totalCount = g.items.length;
   const tilt = hashTilt(key) + 'deg';
@@ -825,7 +842,7 @@ function collectionCardHtml(key){
     <div class="comic${isComplete ? ' is-complete' : ''}" style="--tilt:${tilt}" role="button" tabindex="0" data-card-id="${esc(key)}">
       <div class="cover-wrap">
         <div class="complete-ribbon" data-complete-badge style="display:${isComplete ? 'block' : 'none'}">Complete Set</div>
-        ${image ? `<img class="cover" src="${esc(image)}" loading="lazy" onerror="this.style.opacity=0.2">` : `<div class="no-preview">No preview available</div>`}
+        ${image ? `<img class="cover" src="${esc(image)}" loading="lazy" data-tried-idx="0" onerror="handleShelfImgError(this)">` : `<div class="no-preview">No preview available</div>`}
         ${totalCount > 1 ? `<div class="qty-sticker">&times;${totalCount}</div>` : ''}
         ${priceTagHtmlFor(g.floor)}
       </div>
@@ -873,6 +890,27 @@ function updatePriceForCard(key, floor){
   const text = floor === null || floor === undefined ? 'no ME data' : `${floor.toFixed(3)} SOL`;
   priceEl.textContent = text;
   priceEl.classList.toggle('unavailable', !floor);
+}
+
+// Falls through to the next available image in this collection instead
+// of just dimming on the first failure — the representative image picked
+// by collectionCardHtml is only one candidate among possibly several
+// (candidateImagesFor), and a broken/dead URL on that one specific item
+// shouldn't blank the whole card when other items in the same collection
+// have a working image (this is also why the popup, which draws a
+// separate image per title/rarity tile, doesn't show the same gap).
+function handleShelfImgError(imgEl){
+  const card = imgEl.closest('[data-card-id]');
+  const g = card && allGroups[card.dataset.cardId];
+  if(!g){ imgEl.style.opacity = 0.2; return; }
+  const candidates = candidateImagesFor(g.items);
+  const tried = parseInt(imgEl.dataset.triedIdx || '0', 10) + 1;
+  if(tried < candidates.length){
+    imgEl.dataset.triedIdx = String(tried);
+    imgEl.src = candidates[tried];
+  } else {
+    imgEl.style.opacity = 0.2;
+  }
 }
 
 // Same patch-in-place approach as updatePriceForCard — toggles the
