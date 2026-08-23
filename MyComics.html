@@ -272,7 +272,12 @@
 
   /* Shop inventory sticker — total items owned in this whole collection. */
   .qty-sticker{
-    position:absolute; top:-10px; right:-10px; transform:rotate(-8deg);
+    /* Bottom-left, not top-right: cards tilt into each other along their
+       shared edge, and since a card later in the shelf's DOM order always
+       paints on top of the one before it, a card's own top-right corner
+       is exactly what the next card over covers. Top-left is already
+       taken by the complete-set ribbon on cards that have both. */
+    position:absolute; bottom:-10px; left:-10px; transform:rotate(-8deg);
     background:var(--tag-red); color:#fff; font-family:'Bangers',cursive; letter-spacing:.02em;
     font-size:.98rem; width:34px; height:34px; border-radius:50%;
     display:flex; align-items:center; justify-content:center;
