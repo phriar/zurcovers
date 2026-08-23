@@ -739,6 +739,65 @@ async function loadWallet(address){
   }
 
   setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Done.`);
+
+  // Covers/rarity the Worker couldn't resolve in time for this response
+  // keep resolving in the background there (see zurcovers-proxy-worker.js's
+  // ctx.waitUntil backfill) — silently re-checking a few times picks up
+  // whatever landed, no reload required. wallet.html/collections.html
+  // already do this; MyComics.html didn't, which is why a "No preview"
+  // tile could stay blank indefinitely even after the Worker had since
+  // filled it in server-side (confirmed live from a user report).
+  if(json.pendingBackfill > 0){
+    pollForBackfillUpdates(address);
+  }
+}
+
+// Merges freshly backfilled image/attributes into the *existing* item
+// objects in allGroups (matched by mint) rather than rebuilding allGroups
+// from scratch — that would also throw away every floor price and rarity
+// check the eager loop above already resolved, forcing all of it to redo.
+function mergeUpdatedAssets(newAssets){
+  let changed = false;
+  const byMint = new Map();
+  for(const key of Object.keys(allGroups)){
+    for(const item of allGroups[key].items) byMint.set(item.mint, item);
+  }
+  for(const a of newAssets){
+    const existing = byMint.get(a.mint);
+    if(!existing) continue;
+    if(a.image && !existing.image){ existing.image = a.image; changed = true; }
+    if(Array.isArray(a.attributes) && a.attributes.length > 0 && (!existing.attributes || existing.attributes.length === 0)){
+      existing.attributes = a.attributes;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+// Same ~90s/4-check pacing as wallet.html's own poll, matching the
+// Worker's background-backfill budget. render() here does a full shelf
+// rebuild (not the patch-in-place approach used elsewhere in this file)
+// — acceptable since this fires at most 4 times, well after the initial
+// paint, only when something actually changed.
+async function pollForBackfillUpdates(address){
+  const delays = [15000, 20000, 25000, 30000];
+  for(const delay of delays){
+    await sleep(delay);
+    if(walletInputEl.value.trim() !== address) return; // a different wallet's been loaded since — abandon this poll
+    try{
+      const res = await fetch(`${ME_BASE}/wallet-assets?address=${encodeURIComponent(address)}`);
+      if(!res.ok) continue;
+      const freshJson = await res.json();
+      const freshAssets = (freshJson.assets || []).filter(a => !isExcludedCollection(a.collectionName));
+      if(mergeUpdatedAssets(freshAssets)){
+        render();
+        if(openModalKey) renderCollectionModalGrid(openModalKey);
+      }
+      if(!freshJson.pendingBackfill) return; // fully settled, no need to keep checking
+    }catch(e){
+      // silent — this is best-effort background polish, not a user-facing operation
+    }
+  }
 }
 
 // Strips the trailing "(123/456)" edition marker or bare trailing serial
@@ -904,6 +963,24 @@ function handleShelfImgError(imgEl){
   const g = card && allGroups[card.dataset.cardId];
   if(!g){ imgEl.style.opacity = 0.2; return; }
   const candidates = candidateImagesFor(g.items);
+  const tried = parseInt(imgEl.dataset.triedIdx || '0', 10) + 1;
+  if(tried < candidates.length){
+    imgEl.dataset.triedIdx = String(tried);
+    imgEl.src = candidates[tried];
+  } else {
+    imgEl.style.opacity = 0.2;
+  }
+}
+
+// Same fallback idea as handleShelfImgError, but scoped to just this
+// tile's own candidate images (baked into data-candidates at render time)
+// rather than looking up allGroups — a modal tile can represent more than
+// one copy of the exact same print/rarity, and falling back across
+// different rarities here (like the shelf does across a whole collection)
+// would risk showing the wrong variant's art for the one actually failing.
+function handleTileImgError(imgEl){
+  let candidates;
+  try{ candidates = JSON.parse(imgEl.dataset.candidates || '[]'); }catch(e){ candidates = []; }
   const tried = parseInt(imgEl.dataset.triedIdx || '0', 10) + 1;
   if(tried < candidates.length){
     imgEl.dataset.triedIdx = String(tried);
@@ -1085,12 +1162,20 @@ function updateCandySlotForMint(mint, url){
 }
 
 function collectionModalTileHtml({ title, rarity, items }){
-  const rep = items[0];
+  // Prefer an item that actually has an image over blindly using items[0]
+  // — a tile can hold more than one copy (the ×N case), and Helius
+  // sometimes resolves one copy's metadata before another's (see the
+  // Worker's own missing-image/attributes backfill notes). candidates
+  // covers the (rarer) case where two copies in the same tile end up
+  // with different image URLs, so an onerror on the one shown can still
+  // fall through to another before giving up.
+  const candidates = candidateImagesFor(items);
+  const rep = items.find(i => i.image) || items[0];
   const pdpUrl = `https://magiceden.io/item-details/${rep.mint}`;
   return `
     <div class="copy-card" data-tile-mint="${esc(rep.mint)}">
       <a href="${esc(pdpUrl)}" target="_blank" rel="noopener">
-        ${rep.image ? `<img src="${esc(rep.image)}" loading="lazy" onerror="this.style.opacity=0.2">` : `<div class="no-preview">No preview</div>`}
+        ${candidates[0] ? `<img src="${esc(candidates[0])}" loading="lazy" data-tried-idx="0" data-candidates="${esc(JSON.stringify(candidates))}" onerror="handleTileImgError(this)">` : `<div class="no-preview">No preview</div>`}
       </a>
       <div class="copy-title">${esc(title)}${items.length > 1 ? ` &times;${items.length}` : ''}</div>
       ${rarity ? `<div class="comic-rarity rarity-${rarity.toLowerCase()}">${esc(rarity)}</div>` : ''}
