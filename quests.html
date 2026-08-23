@@ -83,6 +83,13 @@
   #status.err{ color:#e8917a; }
   #status .dot{ display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--cyan); margin-right:8px; }
 
+  .season-summary{
+    position:relative; z-index:1; margin:0 auto 8px; padding:14px 20px; max-width:720px;
+    border:1px solid rgba(232,178,77,0.3); border-radius:6px; background:rgba(232,178,77,0.07);
+    font-family:'DM Mono',monospace; font-size:.88rem; line-height:1.7; color:rgba(243,239,230,0.92);
+  }
+  .season-summary b{ color:var(--gold); font-weight:500; }
+
   .quest-list{ position:relative; z-index:1; padding:8px 32px 80px; display:flex; flex-direction:column; gap:16px; max-width:720px; margin:0 auto; }
 
   .quest-card{
@@ -125,6 +132,7 @@
   @media (max-width:600px){
     header{ padding:32px 18px 18px; }
     .disclosures, .entry-panel, #status, .quest-list, footer{ padding-left:18px; padding-right:18px; }
+    .season-summary{ margin-left:18px; margin-right:18px; }
   }
 </style>
 </head>
@@ -147,6 +155,7 @@
 </div>
 
 <div id="status"></div>
+<div class="season-summary" id="season-summary" style="display:none"></div>
 <div class="quest-list" id="quest-list"></div>
 
 <div class="disclosures">
@@ -192,33 +201,69 @@ function normalizeRarity(attributes){
 // collection name as it appears on the Long Box, no need to look up a
 // Magic Eden symbol or on-chain collection key.
 //
-// mode: "any" = owning ONE of `items` completes the quest. "all" =
-// every item in `items` must be owned (e.g. "one of each of these three
-// collections").
+// requirement.groups: each group needs at least `min` of its `items`
+// owned (a distinct collection/rarity counts once no matter how many
+// copies) — this is the shape Candy Digital's own quests actually use
+// (confirmed from Week 1: "own 2 of these 3 classics" AND "own 1 of
+// these 2 modern issues" are two separate groups with different mins,
+// not one flat any/all list). A quest is complete only when every group
+// meets its own min.
 //
 // opensAt/snapshotAt are ISO datetimes (include your timezone offset,
-// e.g. "-04:00" for ET) — opensAt gates the card from "locked" to
-// checkable, snapshotAt is when Candy Digital actually takes their
-// snapshot. A quest is still shown (and still checked) after its
+// e.g. "-04:00" for ET — Candy Digital's own posts don't state a
+// timezone explicitly, ET is this file's assumption pending
+// confirmation) — opensAt gates the card from "locked" to checkable,
+// snapshotAt is when Candy Digital actually takes their snapshot. Leave
+// either null for a week that hasn't been announced yet — the card
+// renders as "locked"/"Dates TBD" instead of doing date math against a
+// missing value. A quest is still shown (and still checked) after its
 // snapshot passes, but labeled "missed" instead of "in progress" if
 // incomplete — since this checks CURRENT holdings, not a historical
 // snapshot, a comic sold after the snapshot but before you check here
 // can make an actually-completed quest look missed. There's no way
 // around that without Candy Digital's own snapshot data.
+//
+// Season-wide context (from "Collect the Universe: DC Collection Quests
+// Are Here", blog.candy.io, confirmed 2026-08-23): 9 weeks, Aug 21 – Oct
+// 23 2026. Tiered rewards: 1st completed quest = free $25 ComicBook
+// machine pull; 5 of 9 complete = $50 pull; all 9 complete = $50 pull +
+// entry into a finale drawing for ten $250 Legendary pulls. Not modeled
+// per-quest below since it's season-wide, not per-week — see
+// seasonSummaryHtml.
 // ---------------------------------------------------------------------
 const QUESTS = [
   {
     week: 1,
-    title: "Week 1",
-    opensAt: "2026-08-28T00:00:00-04:00",
+    title: "Lanterns",
+    opensAt: "2026-08-21T00:00:00-04:00",
     snapshotAt: "2026-09-04T00:00:00-04:00",
-    reward: "TBD",
+    reward: "Free $25 pull on the ComicBook machine (first completed quest of the season)",
     requirement: {
-      description: "Requirement not yet announced — check back once Candy Digital posts it.",
-      mode: "any",
-      items: [] // e.g. { namePattern: /joker.*deadly/i, rarity: null }, or rarity: "Epic" to require that tier specifically
+      description: "Own 2 of: Showcase (1956-1978) #22, Green Lantern (1960-1986) #59, or All-American Comics (1939-1948) #16 (any rarity) — plus 1 of: Green Lantern (2023-) #1 or Blackest Night (2009-2010) #1 (any rarity). Must hold all at the quest snapshot.",
+      groups: [
+        { min: 2, items: [
+          { namePattern: /showcase\s*\(1956-1978\)\s*#22\b/i },
+          { namePattern: /green lantern\s*\(1960-1986\)\s*#59\b/i },
+          { namePattern: /all-american comics\s*\(1939-1948\)\s*#16\b/i },
+        ] },
+        { min: 1, items: [
+          { namePattern: /green lantern\s*\(2023-?\)\s*#1(?!\d)/i },
+          { namePattern: /blackest night\s*\(2009-2010\)\s*#1(?!\d)/i },
+        ] },
+      ]
     }
   },
+  // Weeks 2-9: not yet announced. Fill in the same shape as Week 1 above
+  // once Candy Digital posts each one — groups: [] renders as "Awaiting
+  // requirement" / "not yet checkable" rather than a false negative.
+  ...Array.from({ length: 8 }, (_, i) => ({
+    week: i + 2,
+    title: `Week ${i + 2}`,
+    opensAt: null,
+    snapshotAt: null,
+    reward: "TBD",
+    requirement: { description: "Requirement not yet announced — check back once Candy Digital posts it.", groups: [] }
+  })),
 ];
 
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
@@ -241,23 +286,30 @@ function ownsRequirementItem(item, assets){
   });
 }
 
+// How many distinct items within one group are satisfied — a group is
+// met once this reaches its own `min` (e.g. 2 of 3 classic issues).
+function groupSatisfiedCount(group, assets){
+  return group.items.filter(item => ownsRequirementItem(item, assets)).length;
+}
+
 // null = requirement not entered yet (can't be checked either way),
-// otherwise true/false against the wallet passed in.
+// otherwise true/false against the wallet passed in. Every group must
+// independently meet its own min — see the QUESTS comment above for why
+// this isn't a single flat any/all list.
 function isQuestComplete(quest, assets){
-  const items = quest.requirement.items;
-  if(!items || items.length === 0) return null;
-  return quest.requirement.mode === 'all'
-    ? items.every(i => ownsRequirementItem(i, assets))
-    : items.some(i => ownsRequirementItem(i, assets));
+  const groups = quest.requirement.groups;
+  if(!groups || groups.length === 0) return null;
+  return groups.every(g => groupSatisfiedCount(g, assets) >= g.min);
 }
 
 function questState(quest, assets){
+  if(!quest.opensAt) return 'locked';
   const now = Date.now();
   const opens = new Date(quest.opensAt).getTime();
-  const snapshot = new Date(quest.snapshotAt).getTime();
   if(now < opens) return 'locked';
   const complete = isQuestComplete(quest, assets);
   if(complete === null) return 'pending';
+  const snapshot = quest.snapshotAt ? new Date(quest.snapshotAt).getTime() : Infinity;
   if(now <= snapshot) return complete ? 'complete' : 'in-progress';
   return complete ? 'complete' : 'missed';
 }
@@ -265,8 +317,9 @@ function questState(quest, assets){
 const STATE_LABELS = { locked:'Not open yet', pending:'Awaiting requirement', 'in-progress':'Not there yet', complete:'Complete', missed:'Missed' };
 
 function formatDateRange(quest){
+  if(!quest.opensAt) return 'Dates TBD';
   const fmt = (iso) => new Date(iso).toLocaleDateString(undefined, { month:'short', day:'numeric' });
-  return `${fmt(quest.opensAt)} – ${fmt(quest.snapshotAt)}`;
+  return quest.snapshotAt ? `${fmt(quest.opensAt)} – ${fmt(quest.snapshotAt)}` : fmt(quest.opensAt);
 }
 
 function questCardHtml(quest, assets){
@@ -287,8 +340,29 @@ function questCardHtml(quest, assets){
   `;
 }
 
+const seasonSummaryEl = document.getElementById('season-summary');
+
+// Season-wide tiered rewards (see the QUESTS comment block for the
+// source) aren't per-quest data, so they're not modeled in QUESTS
+// itself — just computed here from how many quests currently read as
+// "complete". Same current-holdings caveat as an individual "missed"
+// quest applies to this count too.
+const SEASON_TIERS = [
+  { count: 1, label: 'free $25 pull on the ComicBook machine' },
+  { count: 5, label: '$50 pull' },
+  { count: 9, label: '$50 pull + entry into the finale drawing (ten $250 Legendary pulls)' },
+];
+function renderSeasonSummary(assets){
+  const completeCount = QUESTS.filter(q => questState(q, assets) === 'complete').length;
+  const next = SEASON_TIERS.find(t => completeCount < t.count);
+  seasonSummaryEl.style.display = 'block';
+  seasonSummaryEl.innerHTML = `<b>${completeCount} of ${QUESTS.length}</b> quests complete this season.` +
+    (next ? ` Next reward at <b>${next.count}</b>: ${esc(next.label)}.` : ` All tiers reached — ${esc(SEASON_TIERS[SEASON_TIERS.length - 1].label)}.`);
+}
+
 function renderQuests(assets){
   questListEl.innerHTML = QUESTS.map(q => questCardHtml(q, assets)).join('');
+  renderSeasonSummary(assets);
 }
 
 async function loadWallet(address){
