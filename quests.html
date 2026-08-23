@@ -125,6 +125,8 @@
   .req-label{ flex-shrink:0; }
   .req-match{ font-style:italic; color:rgba(243,239,230,0.4); }
   .req-row.matched .req-match{ color:rgba(45,230,208,0.85); font-style:normal; }
+  .req-hunt-link{ color:var(--gold); text-decoration:none; font-style:normal; }
+  .req-hunt-link:hover{ color:var(--paper); text-decoration:underline; }
 
   .quest-reward{ font-family:'DM Mono',monospace; font-size:.85rem; letter-spacing:.03em; color:rgba(243,239,230,0.7); }
   .quest-reward b{ color:var(--gold); font-weight:500; }
@@ -252,13 +254,19 @@ const QUESTS = [
       description: "Own 2 of: Showcase (1956-1978) #22, Green Lantern (1960-1986) #59, or All-American Comics (1939-1948) #16 (any rarity) — plus 1 of: Green Lantern (2023-) #1 or Blackest Night (2009-2010) #1 (any rarity). Must hold all at the quest snapshot.",
       groups: [
         { min: 2, items: [
-          { label: "Showcase (1956-1978) #22", namePattern: /showcase\s*\(1956-1978\)\s*#22\b/i },
-          { label: "Green Lantern (1960-1986) #59", namePattern: /green lantern\s*\(1960-1986\)\s*#59\b/i },
+          { label: "Showcase (1956-1978) #22", namePattern: /showcase\s*\(1956-1978\)\s*#22\b/i, symbol: "showcase_19561978_22" },
+          { label: "Green Lantern (1960-1986) #59", namePattern: /green lantern\s*\(1960-1986\)\s*#59\b/i, symbol: "green_lantern_19601986_59" },
+          // No confirmed Magic Eden symbol for this one as of 2026-08-23 — it
+          // turned up under Candy's older "SweetFutures" program rather than
+          // the DC3/Magic Eden line, so it may not have a Magic Eden listing
+          // at all. Left without a symbol rather than guessing one; the
+          // ZurVault link below degrades to the unfiltered catalog for any
+          // item missing this field.
           { label: "All-American Comics (1939-1948) #16", namePattern: /all-american comics\s*\(1939-1948\)\s*#16\b/i },
         ] },
         { min: 1, items: [
-          { label: "Green Lantern (2023-) #1", namePattern: /green lantern\s*\(2023-?\)\s*#1(?!\d)/i },
-          { label: "Blackest Night (2009-2010) #1", namePattern: /blackest night\s*\(2009-2010\)\s*#1(?!\d)/i },
+          { label: "Green Lantern (2023-) #1", namePattern: /green lantern\s*\(2023-?\)\s*#1(?!\d)/i, symbol: "green_lantern_2023_1" },
+          { label: "Blackest Night (2009-2010) #1", namePattern: /blackest night\s*\(2009-2010\)\s*#1(?!\d)/i, symbol: "blackest_night_20092010_1" },
         ] },
       ]
     }
@@ -320,7 +328,14 @@ function requirementGroupHtml(group, assets){
   const rows = group.items.map(item => {
     const matches = matchingAssetsFor(item, assets);
     const matched = matches.length > 0;
-    const matchText = matched ? matches.map(a => esc(a.name)).join(', ') : 'not found in this wallet';
+    // Degrades to ZurVault's unfiltered catalog when an item has no
+    // confirmed symbol (see the QUESTS comment on why that happens),
+    // same fallback MyComics.html uses for a symbol ZurVault doesn't
+    // recognize — a plain link is still more useful than none at all.
+    const zvUrl = item.symbol ? `https://zurvault.com/?symbol=${encodeURIComponent(item.symbol)}` : 'https://zurvault.com/';
+    const matchText = matched
+      ? matches.map(a => esc(a.name)).join(', ')
+      : `not found in this wallet — <a class="req-hunt-link" href="${esc(zvUrl)}" target="_blank" rel="noopener">find one on ZurVault &#8599;</a>`;
     return `
       <div class="req-row ${matched ? 'matched' : ''}">
         <span class="req-check">${matched ? '&check;' : '&mdash;'}</span>
