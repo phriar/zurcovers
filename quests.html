@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#241407">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<link rel="manifest" href="site.webmanifest">
+<title>Quests — zurcovers</title>
+<meta name="description" content="Paste your public wallet address and see which weekly Candy Digital quests you've already completed, based on what you actually own.">
+<link href="https://fonts.googleapis.com/css2?family=Bangers&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  :root{
+    --wood-dark:  #241407;
+    --wood-mid:   #3a230f;
+    --wood-light: #4e3018;
+    --gold:   #e8b24d;
+    --cyan:   #2de6d0;
+    --paper:  #f3efe6;
+    --tag-red: #c0392b;
+  }
+
+  body{
+    background:
+      repeating-linear-gradient(90deg, rgba(0,0,0,0.08) 0px, transparent 2px, transparent 26px, rgba(0,0,0,0.08) 28px),
+      linear-gradient(180deg, var(--wood-mid), var(--wood-dark) 70%);
+    color:var(--paper); min-height:100vh;
+    font-family:'DM Mono',monospace; -webkit-font-smoothing:antialiased;
+  }
+
+  #grain{
+    position:fixed; inset:0; z-index:0; pointer-events:none; opacity:0.05;
+    background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  header{
+    position:relative; z-index:1; padding:44px 32px 22px; border-bottom:3px solid rgba(0,0,0,0.35);
+    background:radial-gradient(ellipse at top, rgba(232,178,77,0.12), transparent 60%);
+  }
+  header .brand{ font-size:.85rem; letter-spacing:.4em; color:rgba(243,239,230,0.89); text-transform:uppercase; font-family:'DM Mono',monospace; }
+  header .brand a{ color:rgba(243,239,230,0.89); text-decoration:none; }
+  header .brand a:hover{ color:var(--gold); }
+  header h1{
+    font-family:'Bangers',cursive; font-weight:400; letter-spacing:.03em;
+    font-size:clamp(2.4rem,7vw,4rem); line-height:1; margin-top:12px;
+    color:var(--gold); text-shadow:3px 3px 0 rgba(0,0,0,0.4);
+  }
+  header h1 span{ color:var(--paper); }
+  header .sub{ margin-top:12px; font-size:.98rem; letter-spacing:.02em; line-height:1.7; color:rgba(243,239,230,0.92); max-width:560px; }
+
+  .nav-links{ margin-top:16px; display:flex; gap:14px; flex-wrap:wrap; }
+  .nav-links a{ font-size:.88rem; letter-spacing:.16em; text-transform:uppercase; color:rgba(232,178,77,0.75); text-decoration:none; border:1px solid rgba(232,178,77,0.3); padding:6px 14px; border-radius:2px; transition:all .15s; }
+  .nav-links a:hover{ color:var(--gold); border-color:var(--gold); background:rgba(232,178,77,0.08); }
+
+  .disclosures{ position:relative; z-index:1; padding:16px 32px 4px; display:flex; flex-direction:column; gap:10px; }
+  .disclosure-box{ padding:12px 16px; border-radius:4px; font-size:.92rem; line-height:1.7; }
+  .disclosure-box.warn{ border:1px solid rgba(224,122,95,0.35); background:rgba(224,122,95,0.1); color:rgba(243,239,230,0.94); }
+  .disclosure-box.warn strong{ color:#e8917a; font-weight:500; }
+  .disclosure-box.info{ border:1px solid rgba(45,230,208,0.25); background:rgba(45,230,208,0.06); color:rgba(243,239,230,0.92); }
+
+  .entry-panel{
+    position:relative; z-index:1; padding:18px 32px; border-bottom:3px solid rgba(0,0,0,0.35);
+    display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+  }
+  .entry-panel input{
+    flex:1; min-width:220px; background:rgba(0,0,0,0.35); border:1px solid rgba(243,239,230,0.15); color:var(--paper);
+    font-family:'DM Mono',monospace; font-size:.88rem; padding:11px 13px; border-radius:2px; outline:none;
+  }
+  .entry-panel input:focus{ border-color:var(--gold); }
+  .entry-panel button{
+    background:var(--tag-red); border:1px solid rgba(0,0,0,0.3); color:#fff;
+    font-family:'Bangers',cursive; font-size:1.05rem; letter-spacing:.06em; text-transform:uppercase;
+    padding:10px 22px; border-radius:2px; cursor:pointer; transition:filter .15s;
+  }
+  .entry-panel button:hover{ filter:brightness(1.15); }
+
+  #status{ position:relative; z-index:1; padding:16px 32px; font-size:.88rem; letter-spacing:.08em; color:rgba(243,239,230,0.9); text-transform:uppercase; }
+  #status.err{ color:#e8917a; }
+  #status .dot{ display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--cyan); margin-right:8px; }
+
+  .quest-list{ position:relative; z-index:1; padding:8px 32px 80px; display:flex; flex-direction:column; gap:16px; max-width:720px; margin:0 auto; }
+
+  .quest-card{
+    border:1px solid rgba(232,178,77,0.25); border-radius:6px; background:rgba(0,0,0,0.2);
+    padding:18px 20px; display:flex; flex-direction:column; gap:8px;
+  }
+  .quest-card.state-locked{ opacity:0.5; }
+  .quest-card.state-complete{ border-color:rgba(232,178,77,0.6); background:rgba(232,178,77,0.08); box-shadow:0 0 0 1px rgba(232,178,77,0.15) inset; }
+  .quest-card.state-missed{ border-color:rgba(192,57,43,0.35); }
+
+  .quest-top{ display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .quest-week{ font-family:'DM Mono',monospace; font-size:.82rem; letter-spacing:.14em; text-transform:uppercase; color:rgba(243,239,230,0.6); }
+  .quest-dates{ font-family:'DM Mono',monospace; font-size:.78rem; letter-spacing:.06em; color:rgba(243,239,230,0.55); }
+  .quest-title{ font-family:'Bangers',cursive; font-size:1.4rem; letter-spacing:.02em; color:var(--gold); }
+
+  .quest-badge{
+    display:inline-block; align-self:flex-start; font-family:'DM Mono',monospace; font-size:.78rem;
+    letter-spacing:.1em; text-transform:uppercase; padding:3px 10px; border-radius:20px; border:1px solid;
+  }
+  .quest-badge.locked{ color:rgba(243,239,230,0.6); border-color:rgba(243,239,230,0.25); }
+  .quest-badge.pending{ color:rgba(243,239,230,0.85); border-color:rgba(243,239,230,0.3); }
+  .quest-badge.in-progress{ color:var(--cyan); border-color:rgba(45,230,208,0.4); }
+  .quest-badge.complete{ color:var(--wood-dark); background:var(--gold); border-color:transparent; font-family:'Bangers',cursive; letter-spacing:.03em; }
+  .quest-badge.missed{ color:#e8917a; border-color:rgba(224,122,95,0.4); }
+
+  .quest-requirement{ font-family:'Cormorant Garamond',serif; font-size:1.05rem; line-height:1.5; color:rgba(243,239,230,0.95); }
+  .quest-reward{ font-family:'DM Mono',monospace; font-size:.85rem; letter-spacing:.03em; color:rgba(243,239,230,0.7); }
+  .quest-reward b{ color:var(--gold); font-weight:500; }
+  .quest-caveat{ font-family:'DM Mono',monospace; font-size:.78rem; line-height:1.5; color:rgba(243,239,230,0.55); margin-top:2px; }
+
+  .empty{ position:relative; z-index:1; padding:60px 32px; text-align:center; color:rgba(243,239,230,0.89); font-family:'Cormorant Garamond',serif; font-size:1.2rem; font-weight:300; line-height:1.6; }
+
+  footer{
+    position:relative; z-index:1; padding:28px 32px calc(44px + env(safe-area-inset-bottom, 0px));
+    text-align:center; font-size:.85rem; letter-spacing:.12em; color:rgba(243,239,230,0.88); text-transform:uppercase;
+  }
+  footer a{ color:rgba(232,178,77,0.7); text-decoration:none; }
+  footer a:hover{ color:var(--gold); }
+
+  @media (max-width:600px){
+    header{ padding:32px 18px 18px; }
+    .disclosures, .entry-panel, #status, .quest-list, footer{ padding-left:18px; padding-right:18px; }
+  }
+</style>
+</head>
+<body>
+<div id="grain"></div>
+
+<header>
+  <div class="brand"><a href="index.html">zurcovers</a> / Quests</div>
+  <h1>Weekly <span>Quests</span></h1>
+  <div class="sub">Paste your public wallet address and see which of Candy Digital's weekly quests you've already completed, based on what you actually own — no more scrolling your own long box to double-check by hand.</div>
+  <div class="nav-links">
+    <a href="MyComics.html">Long Box</a>
+    <a href="index.html">Home</a>
+  </div>
+</header>
+
+<div class="entry-panel">
+  <input type="text" id="wallet-input" placeholder="paste a public wallet address" autocapitalize="off" autocorrect="off" spellcheck="false">
+  <button id="load-btn">Check My Quests</button>
+</div>
+
+<div id="status"></div>
+<div class="quest-list" id="quest-list"></div>
+
+<div class="disclosures">
+  <div class="disclosure-box warn"><strong>Never share your private key or seed phrase with anyone, including here.</strong> This page only ever needs a <strong>public</strong> wallet address — the same address anyone could already look up on a block explorer. It never asks for anything else.</div>
+  <div class="disclosure-box info">Unofficial fan project &mdash; not affiliated with, endorsed by, or sponsored by DC Comics, Warner Bros. Discovery, Candy Digital, or Magic Eden. Quest requirements below are entered by hand from Candy Digital's own weekly announcements and may lag or contain mistakes &mdash; always treat Candy Digital's own post as the source of truth.</div>
+</div>
+
+<footer>
+  Wallet data via Helius (server-side) · <a href="index.html">zurcovers.com</a>
+</footer>
+
+<script>
+const ME_PROXY_BASE = "https://zurcovers-proxy.stholt.workers.dev";
+const ME_BASE = ME_PROXY_BASE + "/v2";
+const WALLET_KEY = 'zurcovers_wallet'; // shared across every zurcovers page — a wallet pasted anywhere else on the site is already here
+const SOL_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
+// Same junk filter as MyComics.html — a wallet holding these shouldn't
+// make an unrelated quest look checkable against them.
+const EXCLUDED_COLLECTION_NAME_PATTERNS = [/\bmlb\b/i, /inkling/i, /\bicon\b/i, /\bopening day\b/i];
+function isExcludedCollection(name){
+  return EXCLUDED_COLLECTION_NAME_PATTERNS.some(re => re.test(name || ''));
+}
+
+const RARITY_ALIASES = { common:'common', core:'common', base:'common', standard:'common', uncommon:'uncommon', rare:'rare', epic:'epic', legendary:'legendary' };
+const RARITY_LABELS = { common:'Common', uncommon:'Uncommon', rare:'Rare', epic:'Epic', legendary:'Legendary' };
+function normalizeRarity(attributes){
+  const attr = (attributes || []).find(a => /^rarity$/i.test(a?.trait_type || ''));
+  if(!attr) return null;
+  const value = String(attr.value || '').trim();
+  const match = /^(.*?)\s*\(([\d.]+)\)\s*$/.exec(value);
+  const cleaned = (match ? match[1] : value).trim().toLowerCase();
+  const key = RARITY_ALIASES[cleaned];
+  return key ? RARITY_LABELS[key] : null;
+}
+
+// ---------------------------------------------------------------------
+// QUESTS — hand-edited each week once Candy Digital posts the quest,
+// typically Friday. No Worker/API involved in matching: each requirement
+// item is a case-insensitive pattern matched straight against the
+// collectionName Helius already returns for every held asset (same
+// field MyComics.html filters junk out with, above) — copy the exact
+// collection name as it appears on the Long Box, no need to look up a
+// Magic Eden symbol or on-chain collection key.
+//
+// mode: "any" = owning ONE of `items` completes the quest. "all" =
+// every item in `items` must be owned (e.g. "one of each of these three
+// collections").
+//
+// opensAt/snapshotAt are ISO datetimes (include your timezone offset,
+// e.g. "-04:00" for ET) — opensAt gates the card from "locked" to
+// checkable, snapshotAt is when Candy Digital actually takes their
+// snapshot. A quest is still shown (and still checked) after its
+// snapshot passes, but labeled "missed" instead of "in progress" if
+// incomplete — since this checks CURRENT holdings, not a historical
+// snapshot, a comic sold after the snapshot but before you check here
+// can make an actually-completed quest look missed. There's no way
+// around that without Candy Digital's own snapshot data.
+// ---------------------------------------------------------------------
+const QUESTS = [
+  {
+    week: 1,
+    title: "Week 1",
+    opensAt: "2026-08-28T00:00:00-04:00",
+    snapshotAt: "2026-09-04T00:00:00-04:00",
+    reward: "TBD",
+    requirement: {
+      description: "Requirement not yet announced — check back once Candy Digital posts it.",
+      mode: "any",
+      items: [] // e.g. { namePattern: /joker.*deadly/i, rarity: null }, or rarity: "Epic" to require that tier specifically
+    }
+  },
+];
+
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+
+function setStatus(msg, isErr){
+  statusEl.innerHTML = (isErr ? '' : '<span class="dot"></span>') + msg;
+  statusEl.classList.toggle('err', !!isErr);
+}
+
+const statusEl = document.getElementById('status');
+const questListEl = document.getElementById('quest-list');
+const walletInputEl = document.getElementById('wallet-input');
+const loadBtnEl = document.getElementById('load-btn');
+
+function ownsRequirementItem(item, assets){
+  return assets.some(a => {
+    if(item.namePattern && !item.namePattern.test(a.collectionName || '')) return false;
+    if(item.rarity && normalizeRarity(a.attributes) !== item.rarity) return false;
+    return true;
+  });
+}
+
+// null = requirement not entered yet (can't be checked either way),
+// otherwise true/false against the wallet passed in.
+function isQuestComplete(quest, assets){
+  const items = quest.requirement.items;
+  if(!items || items.length === 0) return null;
+  return quest.requirement.mode === 'all'
+    ? items.every(i => ownsRequirementItem(i, assets))
+    : items.some(i => ownsRequirementItem(i, assets));
+}
+
+function questState(quest, assets){
+  const now = Date.now();
+  const opens = new Date(quest.opensAt).getTime();
+  const snapshot = new Date(quest.snapshotAt).getTime();
+  if(now < opens) return 'locked';
+  const complete = isQuestComplete(quest, assets);
+  if(complete === null) return 'pending';
+  if(now <= snapshot) return complete ? 'complete' : 'in-progress';
+  return complete ? 'complete' : 'missed';
+}
+
+const STATE_LABELS = { locked:'Not open yet', pending:'Awaiting requirement', 'in-progress':'Not there yet', complete:'Complete', missed:'Missed' };
+
+function formatDateRange(quest){
+  const fmt = (iso) => new Date(iso).toLocaleDateString(undefined, { month:'short', day:'numeric' });
+  return `${fmt(quest.opensAt)} – ${fmt(quest.snapshotAt)}`;
+}
+
+function questCardHtml(quest, assets){
+  const state = questState(quest, assets);
+  const label = STATE_LABELS[state];
+  return `
+    <div class="quest-card state-${state}">
+      <div class="quest-top">
+        <div class="quest-week">Week ${quest.week}</div>
+        <div class="quest-dates">${esc(formatDateRange(quest))}</div>
+      </div>
+      <div class="quest-title">${esc(quest.title)}</div>
+      <div class="quest-badge ${state}">${esc(label)}</div>
+      <div class="quest-requirement">${esc(quest.requirement.description)}</div>
+      <div class="quest-reward">Reward: <b>${esc(quest.reward)}</b></div>
+      ${state === 'missed' ? `<div class="quest-caveat">Checked against what's in this wallet right now — if something changed hands after Candy Digital's snapshot, this may not match their own result.</div>` : ''}
+    </div>
+  `;
+}
+
+function renderQuests(assets){
+  questListEl.innerHTML = QUESTS.map(q => questCardHtml(q, assets)).join('');
+}
+
+async function loadWallet(address){
+  questListEl.innerHTML = '';
+  setStatus('Fetching wallet assets…');
+
+  let json;
+  try{
+    const res = await fetch(`${ME_BASE}/wallet-assets?address=${encodeURIComponent(address)}`);
+    if(!res.ok){
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(errJson.error === 'rate_limited' ? 'Too many lookups from here right now — try again in a bit.' : `HTTP ${res.status}`);
+    }
+    json = await res.json();
+  }catch(e){
+    setStatus('Could not load that wallet: ' + e.message, true);
+    return;
+  }
+
+  const assets = (json.assets || []).filter(a => !isExcludedCollection(a.collectionName));
+  setStatus(`Checked ${assets.length} NFTs against ${QUESTS.length} quest(s).`);
+  renderQuests(assets);
+}
+
+function go(){
+  const addr = walletInputEl.value.trim();
+  if(!SOL_ADDRESS_RE.test(addr)){
+    setStatus("That doesn't look like a valid Solana address.", true);
+    return;
+  }
+  localStorage.setItem(WALLET_KEY, addr);
+  history.replaceState(null, '', '?wallet=' + encodeURIComponent(addr));
+  loadWallet(addr);
+}
+loadBtnEl.addEventListener('click', go);
+walletInputEl.addEventListener('keydown', (e) => { if(e.key === 'Enter') go(); });
+
+(function init(){
+  const urlWallet = new URLSearchParams(window.location.search).get('wallet');
+  const saved = localStorage.getItem(WALLET_KEY);
+  const addr = (urlWallet && SOL_ADDRESS_RE.test(urlWallet)) ? urlWallet : saved;
+  if(addr){
+    walletInputEl.value = addr;
+    loadWallet(addr);
+  } else {
+    setStatus('Paste a public wallet address above to get started.');
+  }
+})();
+</script>
+</body>
+</html>
