@@ -417,12 +417,13 @@ const LOOKUP_PACE_MS = 900; // same pacing discover.html uses against Magic Eden
 
 // zurcovers is DC digital comics only — Candy Digital (the same minting
 // platform behind these DC drops) also mints non-comic collectibles
-// (MLB, "Inklings," etc.) that can end up in the same wallet. Filtered
-// out at the source, before anything else touches the asset list, so
-// they never appear anywhere: not the shelf, not the collector stats, not
-// the "N NFTs across M collections" counts. Matched case-insensitively
-// against the collection's own name.
-const EXCLUDED_COLLECTION_NAME_PATTERNS = [/\bmlb\b/i, /inkling/i];
+// (MLB card products — "Icon," "Opening Day," etc. — plus "Inklings")
+// that can end up in the same wallet. Filtered out at the source, before
+// anything else touches the asset list, so they never appear anywhere:
+// not the shelf, not the collector stats, not the "N NFTs across M
+// collections" counts. Matched case-insensitively against the
+// collection's own name. If more non-DC junk turns up, add it here.
+const EXCLUDED_COLLECTION_NAME_PATTERNS = [/\bmlb\b/i, /inkling/i, /\bicon\b/i, /\bopening day\b/i];
 function isExcludedCollection(name){
   return EXCLUDED_COLLECTION_NAME_PATTERNS.some(re => re.test(name || ''));
 }
