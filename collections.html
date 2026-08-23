@@ -756,8 +756,8 @@ function renderComicsList(key, symbol){
   }).join('');
 
   setStatus(symbol
-    ? `${byTitle.size} comic(s) in ${g.name}.`
-    : `${byTitle.size} comic(s) in ${g.name} — could not resolve a Magic Eden symbol for this collection, prices unavailable.`,
+    ? `${byTitle.size} comic(s) in ${esc(g.name)}.`
+    : `${byTitle.size} comic(s) in ${esc(g.name)} — could not resolve a Magic Eden symbol for this collection, prices unavailable.`,
     !symbol
   );
 }
