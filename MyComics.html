@@ -137,6 +137,11 @@
     border:1px solid rgba(45,230,208,0.22); background:rgba(45,230,208,0.06); color:rgba(243,239,230,0.92);
   }
   .copies-modal-missing.has-missing{ border-color:rgba(192,57,43,0.35); background:rgba(192,57,43,0.1); color:rgba(243,239,230,0.95); }
+  .copies-modal-missing.is-complete{
+    border-color:rgba(232,178,77,0.55); background:rgba(232,178,77,0.14); color:var(--paper);
+    font-family:'Bangers',cursive; letter-spacing:.03em; font-size:1.05rem; text-transform:none;
+    box-shadow:0 0 0 1px rgba(232,178,77,0.2) inset;
+  }
   .missing-hunt-link{
     display:inline-block; margin-top:8px; font-family:'DM Mono',monospace; font-size:.88rem; letter-spacing:.08em;
     text-transform:uppercase; color:var(--tag-red); background:var(--paper); text-decoration:none;
@@ -753,18 +758,21 @@ function renderCollectionModal(key){
   const missing = computeMissingRarities(key);
   if(missing === undefined){
     missingEl.style.display = 'block';
-    missingEl.classList.remove('has-missing');
+    missingEl.classList.remove('has-missing', 'is-complete');
     missingEl.innerHTML = g.rarityFetchFailed
       ? `Couldn't check current rarities right now — Magic Eden may be rate-limiting lookups. <a href="#" data-retry="${esc(key)}">Retry &#8635;</a>`
       : 'Checking which rarities are currently available…';
   } else if(missing === null){
     missingEl.style.display = 'none';
+    missingEl.classList.remove('has-missing', 'is-complete');
   } else if(missing.length === 0){
     missingEl.style.display = 'block';
     missingEl.classList.remove('has-missing');
-    missingEl.textContent = 'You own every currently-listed rarity tier for this collection.';
+    missingEl.classList.add('is-complete');
+    missingEl.textContent = '★ Complete set — you own every currently-listed rarity tier.';
   } else {
     missingEl.style.display = 'block';
+    missingEl.classList.remove('is-complete');
     missingEl.classList.add('has-missing');
     // Passes the exact Magic Eden collection symbol (already resolved for
     // every collection shown here) as a URL param — ZurVault's own
