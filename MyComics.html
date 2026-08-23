@@ -245,6 +245,19 @@
     box-shadow:0 3px 6px rgba(0,0,0,0.4); border:2px solid rgba(255,255,255,0.25);
   }
 
+  /* Shown once a collection's rarity check resolves and every currently-
+     listed tier is accounted for somewhere in what's owned — computed the
+     same way (computeMissingRarities) as the panel's own "Complete set"
+     line, so the two never disagree. */
+  .complete-ribbon{
+    position:absolute; top:-10px; left:-10px; transform:rotate(-5deg); z-index:1;
+    background:var(--gold); color:var(--wood-dark); font-family:'Bangers',cursive; letter-spacing:.02em;
+    font-size:.78rem; padding:4px 10px; border-radius:2px;
+    box-shadow:0 3px 6px rgba(0,0,0,0.4); white-space:nowrap;
+  }
+  .comic.is-complete .cover{ box-shadow:0 0 0 3px var(--gold), 0 6px 16px rgba(0,0,0,0.5); }
+  .comic.is-complete:hover .cover{ box-shadow:0 0 0 3px var(--gold), 0 16px 32px rgba(0,0,0,0.6); }
+
   .comic .caption{ margin-top:14px; text-align:center; }
   .comic .caption .name{
     font-family:'Cormorant Garamond',serif; font-size:1.05rem; line-height:1.25; color:rgba(243,239,230,0.98);
@@ -455,8 +468,13 @@ async function fetchFloorPrice(symbol){
 
 // Current lowest listed price per rarity tier, from this collection's
 // active listings (first 100). Also doubles as "which rarity tiers exist
-// at all right now" for the missing-rarities check below — the same data
-// wallet.html/collections.html already fetch for their own rarity views.
+// at all right now" for the missing-rarities check below. Goes through
+// the Worker's own /rarity-summary endpoint rather than proxying straight
+// to Magic Eden's listings endpoint — that endpoint caches the response
+// in KV for 30 minutes, globally shared across every visitor checking the
+// same collection, since this answer isn't wallet-specific. Same response
+// shape as Magic Eden's own listings endpoint, so the parsing below is
+// unchanged — only the URL moved.
 // Returns null on a failed/blocked request (network error, non-OK status
 // — including a 429 from Magic Eden's real per-minute rate limit) so the
 // caller can tell "couldn't check" apart from "checked, found nothing" —
@@ -466,7 +484,7 @@ async function fetchFloorPrice(symbol){
 // click after the limit kicked in.
 async function fetchListingsRarityFloors(symbol){
   try{
-    const res = await fetch(`${ME_BASE}/collections/${symbol}/listings?offset=0&limit=100`);
+    const res = await fetch(`${ME_BASE}/collections/${symbol}/rarity-summary`);
     if(!res.ok) return null;
     const data = await res.json();
     const map = {};
@@ -521,20 +539,41 @@ async function loadWallet(address){
   }
   const groupKeys = Object.keys(allGroups);
 
-  setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Looking up floor prices…`);
+  setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Looking up floor prices and rarities…`);
   caveatEl.style.display = 'block';
   render(); // one full paint, price tags start as "…" — resolved prices patch in place below, never a second full re-render
   updateCollectorStats();
   updatePortfolioValue();
 
+  // Rarity-summary is folded into this same eager, paced loop (not left
+  // lazy-only) so a "complete set" badge can show on the shelf itself
+  // without opening every collection — only practical because that lookup
+  // is now KV-cached server-side (see fetchListingsRarityFloors), so it
+  // gets cheap to check for every collection over time instead of costing
+  // a fresh Magic Eden call each time. ensureRarityFloors() below still
+  // exists for the popup's lazy path (a collection this loop hasn't
+  // reached yet, or a retry after a failed check) — it's a no-op once
+  // g.rarityFloors is already set here.
   let done = 0;
   for(const key of groupKeys){
     const symbol = await resolveMESymbol(allGroups[key].sampleMint);
     allGroups[key].symbol = symbol;
     allGroups[key].floor = symbol ? await fetchFloorPrice(symbol) : null;
+    // Guarded on still-undefined in case a visitor already opened this
+    // exact collection's panel before this loop reached it — the panel's
+    // own lazy fetch (ensureRarityFloors) would have already set this.
+    if(allGroups[key].rarityFloors === undefined){
+      if(symbol){
+        const rarityResult = await fetchListingsRarityFloors(symbol);
+        if(rarityResult !== null) allGroups[key].rarityFloors = rarityResult;
+      } else {
+        allGroups[key].rarityFloors = {};
+      }
+    }
     done++;
-    setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Floor prices: ${done}/${groupKeys.length}…`);
+    setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Checking ${done}/${groupKeys.length}…`);
     updatePriceForCard(key, allGroups[key].floor);
+    updateCompleteBadgeForCard(key);
     updatePortfolioValue();
     await sleep(LOOKUP_PACE_MS);
   }
@@ -601,8 +640,16 @@ function collectionCardHtml(key){
   const distinctCount = groupByName(g.items).size;
   const totalCount = g.items.length;
   const tilt = hashTilt(key) + 'deg';
+  // computeMissingRarities() only returns a definite answer once
+  // g.rarityFloors has resolved (undefined/null both mean "not known yet
+  // or not checkable"), so a freshly-rendered card before that starts
+  // with the ribbon hidden — updateCompleteBadgeForCard() flips it on in
+  // place once the eager loop reaches this collection, same pattern as
+  // the price tag.
+  const isComplete = computeMissingRarities(key)?.length === 0;
   return `
-    <div class="comic" style="--tilt:${tilt}" role="button" tabindex="0" data-card-id="${esc(key)}">
+    <div class="comic${isComplete ? ' is-complete' : ''}" style="--tilt:${tilt}" role="button" tabindex="0" data-card-id="${esc(key)}">
+      <div class="complete-ribbon" data-complete-badge style="display:${isComplete ? 'block' : 'none'}">Complete Set</div>
       ${image ? `<img class="cover" src="${esc(image)}" loading="lazy" onerror="this.style.opacity=0.2">` : `<div class="no-preview">No preview available</div>`}
       ${totalCount > 1 ? `<div class="qty-sticker">&times;${totalCount}</div>` : ''}
       ${priceTagHtmlFor(g.floor)}
@@ -640,6 +687,22 @@ function updatePriceForCard(key, floor){
   const text = floor === null || floor === undefined ? 'no ME data' : `${floor.toFixed(3)} SOL`;
   priceEl.textContent = text;
   priceEl.classList.toggle('unavailable', !floor);
+}
+
+// Same patch-in-place approach as updatePriceForCard — toggles the
+// ribbon and the card's glow without touching the cover <img>. Reads
+// computeMissingRarities() (defined below, used the same way inside the
+// collection panel) so "complete" means exactly the same thing in both
+// places: every currently-listed rarity tier for this collection is
+// represented somewhere in what's owned.
+function updateCompleteBadgeForCard(key){
+  const card = shelfEl.querySelector(`[data-card-id="${CSS.escape(key)}"]`);
+  if(!card) return;
+  const badgeEl = card.querySelector('[data-complete-badge]');
+  if(!badgeEl) return;
+  const isComplete = computeMissingRarities(key)?.length === 0;
+  badgeEl.style.display = isComplete ? 'block' : 'none';
+  card.classList.toggle('is-complete', isComplete);
 }
 
 // Estimated portfolio value — sum of each held asset's own collection
