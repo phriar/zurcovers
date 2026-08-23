@@ -894,9 +894,11 @@ function computeMissingRarities(key){
 // Fire-and-forget, memoized on the underlying item object (which persists
 // across re-renders since it's the same reference pulled from
 // allGroups[key].items every time) — a tile that's already resolved or
-// mid-flight is skipped, so repeated renderCollectionModal() calls (the
-// missing-rarities check alone triggers at least one) never queue
-// duplicate lookups for the same mint.
+// mid-flight is skipped, so this being called again is a safe no-op, not
+// a duplicate lookup for the same mint. (renderCollectionModalGrid — the
+// only thing that calls this — only ever runs once per modal open, so in
+// practice this guard mostly matters if a collection's panel gets closed
+// and reopened before a lookup from the first open finishes.)
 const candyFetchInFlight = new Set();
 function ensureCandyUrl(item, key){
   if(item.candyUrl !== undefined || candyFetchInFlight.has(item.mint)) return;
@@ -904,27 +906,53 @@ function ensureCandyUrl(item, key){
   queueCandyLookup(() => resolveCandyUrl(item.mint)).then((url) => {
     item.candyUrl = url;
     candyFetchInFlight.delete(item.mint);
-    if(openModalKey === key) renderCollectionModal(key);
+    if(openModalKey === key) updateCandySlotForMint(item.mint, url);
   });
+}
+
+// Patches just this one tile's Candy-link slot — not a grid rebuild, so
+// the tile's own <img> (and every other tile's) never gets torn down.
+// Each resolution used to trigger a full renderCollectionModal() rebuild
+// of the whole grid; for a collection with several distinct comics, that
+// meant the entire grid visibly flashed once per comic as each one's
+// Candy link came in.
+function updateCandySlotForMint(mint, url){
+  const card = document.querySelector(`#copies-modal-grid [data-tile-mint="${CSS.escape(mint)}"]`);
+  if(!card) return;
+  const slot = card.querySelector('[data-candy-slot]');
+  if(!slot) return;
+  slot.innerHTML = url ? `<a class="copy-candy-link" href="${esc(url)}" target="_blank" rel="noopener">Read on Candy &#8599;</a>` : '';
 }
 
 function collectionModalTileHtml({ title, rarity, items }){
   const rep = items[0];
   const pdpUrl = `https://magiceden.io/item-details/${rep.mint}`;
   return `
-    <div class="copy-card">
+    <div class="copy-card" data-tile-mint="${esc(rep.mint)}">
       <a href="${esc(pdpUrl)}" target="_blank" rel="noopener">
         ${rep.image ? `<img src="${esc(rep.image)}" loading="lazy" onerror="this.style.opacity=0.2">` : `<div class="no-preview">No preview</div>`}
       </a>
       <div class="copy-title">${esc(title)}${items.length > 1 ? ` &times;${items.length}` : ''}</div>
       ${rarity ? `<div class="comic-rarity rarity-${rarity.toLowerCase()}">${esc(rarity)}</div>` : ''}
       <a class="copy-me-tag" href="${esc(pdpUrl)}" target="_blank" rel="noopener">Magic Eden &#8599;</a>
-      ${rep.candyUrl ? `<a class="copy-candy-link" href="${esc(rep.candyUrl)}" target="_blank" rel="noopener">Read on Candy &#8599;</a>` : ''}
+      <span data-candy-slot>${rep.candyUrl ? `<a class="copy-candy-link" href="${esc(rep.candyUrl)}" target="_blank" rel="noopener">Read on Candy &#8599;</a>` : ''}</span>
     </div>
   `;
 }
 
-function renderCollectionModal(key){
+// Renders the title/sub/grid — called exactly once per modal open. This
+// content never changes after that (it's derived from what's owned, not
+// from anything still loading), so it must never be rebuilt again: an
+// earlier version rebuilt this same innerHTML every time the rarity check
+// resolved AND every time any single tile's "Read on Candy" link
+// resolved (once per distinct comic in the collection) — each one tore
+// down and reloaded every <img> in the grid, not just whatever changed,
+// which is what caused a visible flicker on open. See
+// updateCandySlotForMint for how a resolved Candy link now gets patched
+// into the DOM directly, and renderMissingRaritiesStatus for the one
+// piece of this panel that legitimately does need to re-render as data
+// arrives.
+function renderCollectionModalGrid(key){
   const g = allGroups[key];
   if(!g) return;
   const tiles = groupByTitleAndRarity(g.items);
@@ -936,7 +964,15 @@ function renderCollectionModal(key){
   document.getElementById('copies-modal-title').textContent = g.name;
   document.getElementById('copies-modal-sub').textContent =
     `${distinctCount} comic${distinctCount !== 1 ? 's' : ''} · ${totalCount} cop${totalCount !== 1 ? 'ies' : 'y'} owned${floorText}`;
+  document.getElementById('copies-modal-grid').innerHTML = tiles.map(collectionModalTileHtml).join('');
+}
 
+// The only part of the panel that re-renders as data arrives (the rarity
+// check can take a moment) — deliberately separate from the grid above
+// so re-rendering this never touches the covers.
+function renderMissingRaritiesStatus(key){
+  const g = allGroups[key];
+  if(!g) return;
   const missingEl = document.getElementById('copies-modal-missing');
   const missing = computeMissingRarities(key);
   if(missing === undefined){
@@ -973,8 +1009,6 @@ function renderCollectionModal(key){
     missingEl.innerHTML = `Missing rarities (exist in this collection, not owned yet): <b>${missing.map(esc).join(', ')}</b><br>` +
       `<a class="missing-hunt-link" href="${esc(zvUrl)}" target="_blank" rel="noopener">See what's for sale on ZurVault &#8599;</a>`;
   }
-
-  document.getElementById('copies-modal-grid').innerHTML = tiles.map(collectionModalTileHtml).join('');
 }
 
 // Serializes a class of on-demand fetches LOOKUP_PACE_MS apart, regardless
@@ -1022,19 +1056,20 @@ async function openCollectionModal(key){
   const g = allGroups[key];
   if(!g) return;
   openModalKey = key;
-  renderCollectionModal(key);
+  renderCollectionModalGrid(key); // built exactly once — see its own comment for why this must never re-run for this modal session
+  renderMissingRaritiesStatus(key);
   document.getElementById('copies-modal').style.display = 'flex';
   document.body.style.overflow = 'hidden';
   await ensureKnownRarities(key);
-  if(openModalKey === key) renderCollectionModal(key);
+  if(openModalKey === key) renderMissingRaritiesStatus(key);
 }
 async function retryRarityCheck(key){
   const g = allGroups[key];
   if(!g) return;
   g.rarityFetchFailed = false;
-  renderCollectionModal(key); // back to "Checking…" immediately, not stuck on the failure message
+  renderMissingRaritiesStatus(key); // back to "Checking…" immediately, not stuck on the failure message
   await ensureKnownRarities(key);
-  if(openModalKey === key) renderCollectionModal(key);
+  if(openModalKey === key) renderMissingRaritiesStatus(key);
 }
 function closeCopiesModal(){
   document.getElementById('copies-modal').style.display = 'none';
