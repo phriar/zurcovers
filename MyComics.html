@@ -321,7 +321,14 @@
     .nc-row{ flex-direction:column; gap:2px; }
     .nc-status{ text-align:left; }
     .shelf{ padding-left:18px; padding-right:18px; gap:22px 12px; justify-content:space-between; }
-    .comic{ width:clamp(140px, 44vw, 190px); }
+    /* Exactly 2 columns, computed rather than approximated with vw — a
+       vw-based guess (e.g. 44vw) plus the shelf's own 18px side padding
+       and 12px gap adds up to just barely more than half the viewport on
+       common phone widths, so the second card silently wraps to its own
+       line instead of sitting beside the first. This guarantees the math
+       actually works out to two per row: full width minus both side
+       paddings (18px × 2) minus the one gap between the pair, halved. */
+    .comic{ width:calc((100vw - 48px) / 2); }
     .entry-panel button{ width:100%; }
     .entry-panel input{ min-width:0; width:100%; }
   }
