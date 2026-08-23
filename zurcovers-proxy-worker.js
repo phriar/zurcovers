@@ -128,6 +128,19 @@ const FLOOR_PRICE_CACHE_TTL_SECONDS = 60 * 15;
 // collection's assigned Magic Eden symbol is effectively permanent.
 const COLLECTION_SYMBOL_CACHE_TTL_SECONDS = 60 * 60 * 24 * 30;
 
+// Per-IP-per-hour, per endpoint (symbol/floor/rarities each get their own
+// independent budget) — only counted on a cache miss, same principle as
+// WALLET_RATE_LIMIT_PER_HOUR above, so a wallet's own eager per-collection
+// loading pass is never what trips this: only genuinely never-before-seen
+// collections cost a live call at all, and repeat/shared collections are
+// free regardless of how many times this limit has already been hit this
+// hour. Set high enough to comfortably cover even a very large wallet's
+// full first-ever cold-cache load (confirmed real wallets with 200+
+// distinct collections) while still capping a spammer's worst case at a
+// few hundred wasted live calls instead of unlimited — the rarities
+// endpoint in particular costs a real Helius call on every miss.
+const COLLECTION_LOOKUP_RATE_LIMIT_PER_HOUR = 1000;
+
 // ---------------------------------------------------------------------
 // WALLET ASSETS — GET /v2/wallet-assets?address={pubkey}, backs
 // slideshow.html and wallet.html. Server-side Helius lookup so visitors
@@ -372,16 +385,19 @@ async function fetchWalletAssets(address, env) {
   return assets;
 }
 
-// Only counted against actual Helius calls (see handleWalletAssets) — a
-// cached response costs nothing, so it doesn't touch this. Same eventual-
-// consistency tolerance as the click/gallery-view counters below: KV isn't
-// a precise atomic counter, but that's fine for deterring casual abuse
-// rather than enforcing an exact quota.
-async function checkAndBumpRateLimit(ip, env) {
+// Generic per-IP-per-hour counter, bucketed by name so different endpoints
+// (wallet lookups, per-collection lookups) get independent budgets rather
+// than sharing one number. Only ever called right before a *live* upstream
+// call (Helius or Magic Eden) — a cache hit costs nothing and never
+// reaches this, same principle for every caller of this function. Same
+// eventual-consistency tolerance as the click/gallery-view counters below:
+// KV isn't a precise atomic counter, but that's fine for deterring casual
+// abuse rather than enforcing an exact quota.
+async function checkAndBumpRateLimit(ip, env, bucket, limit) {
   const hourBucket = Math.floor(Date.now() / 3600000);
-  const key = `ratelimit:wallet:${ip}:${hourBucket}`;
+  const key = `ratelimit:${bucket}:${ip}:${hourBucket}`;
   const current = parseInt((await env.ZURCOVERS_CACHE.get(key)) || "0", 10);
-  if (current >= WALLET_RATE_LIMIT_PER_HOUR) return false;
+  if (current >= limit) return false;
   await env.ZURCOVERS_CACHE.put(key, String(current + 1), { expirationTtl: 3600 });
   return true;
 }
@@ -445,7 +461,7 @@ async function handleWalletAssets(request, env, ctx, corsHeaders) {
   }
 
   const ip = request.headers.get("CF-Connecting-IP") || "unknown";
-  const allowed = await checkAndBumpRateLimit(ip, env);
+  const allowed = await checkAndBumpRateLimit(ip, env, "wallet", WALLET_RATE_LIMIT_PER_HOUR);
   if (!allowed) {
     return new Response(JSON.stringify({ error: "rate_limited", retryAfterSeconds: 3600 }), {
       status: 429,
@@ -520,7 +536,7 @@ async function fetchCollectionRarities(collectionKey, env) {
   return [...rarities];
 }
 
-async function handleCollectionRarities(collectionKey, env, corsHeaders) {
+async function handleCollectionRarities(collectionKey, env, corsHeaders, ip) {
   if (!SAFE_KEY_RE.test(collectionKey)) {
     return new Response(JSON.stringify({ error: "invalid_collection_key" }), {
       status: 400,
@@ -534,6 +550,16 @@ async function handleCollectionRarities(collectionKey, env, corsHeaders) {
     return new Response(cached, {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json", "X-Zurcovers-Cache-Status": "HIT" },
+    });
+  }
+
+  // Only reached on a miss — this is the endpoint that costs a real
+  // Helius call, so it's the one most worth gating.
+  const allowed = await checkAndBumpRateLimit(ip, env, "rarities", COLLECTION_LOOKUP_RATE_LIMIT_PER_HOUR);
+  if (!allowed) {
+    return new Response(JSON.stringify({ error: "rate_limited", retryAfterSeconds: 3600 }), {
+      status: 429,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
@@ -553,7 +579,7 @@ async function handleCollectionRarities(collectionKey, env, corsHeaders) {
   }
 }
 
-async function handleFloorPriceStats(symbol, env, corsHeaders) {
+async function handleFloorPriceStats(symbol, env, corsHeaders, ip) {
   if (!SAFE_KEY_RE.test(symbol)) {
     return new Response(JSON.stringify({ error: "invalid_symbol" }), {
       status: 400,
@@ -567,6 +593,14 @@ async function handleFloorPriceStats(symbol, env, corsHeaders) {
     return new Response(cached, {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json", "X-Zurcovers-Cache-Status": "HIT" },
+    });
+  }
+
+  const allowed = await checkAndBumpRateLimit(ip, env, "floor", COLLECTION_LOOKUP_RATE_LIMIT_PER_HOUR);
+  if (!allowed) {
+    return new Response(JSON.stringify({ error: "rate_limited", retryAfterSeconds: 3600 }), {
+      status: 429,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
@@ -594,7 +628,7 @@ async function handleFloorPriceStats(symbol, env, corsHeaders) {
   }
 }
 
-async function handleCollectionSymbol(collectionKey, mint, env, corsHeaders) {
+async function handleCollectionSymbol(collectionKey, mint, env, corsHeaders, ip) {
   if (!SAFE_KEY_RE.test(collectionKey) || !mint || !SAFE_KEY_RE.test(mint)) {
     return new Response(JSON.stringify({ error: "invalid_params" }), {
       status: 400,
@@ -608,6 +642,14 @@ async function handleCollectionSymbol(collectionKey, mint, env, corsHeaders) {
     return new Response(cached, {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json", "X-Zurcovers-Cache-Status": "HIT" },
+    });
+  }
+
+  const allowed = await checkAndBumpRateLimit(ip, env, "symbol", COLLECTION_LOOKUP_RATE_LIMIT_PER_HOUR);
+  if (!allowed) {
+    return new Response(JSON.stringify({ error: "rate_limited", retryAfterSeconds: 3600 }), {
+      status: 429,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
@@ -661,6 +703,11 @@ export default {
       return new Response(null, { headers: corsHeaders });
     }
 
+    // Computed once here (Cloudflare's own trusted header, not
+    // client-spoofable) rather than per-handler — several handlers below
+    // need it for their own rate limiting.
+    const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+
     const url = new URL(request.url);
 
     if (url.pathname === "/v2/wallet-assets") {
@@ -669,7 +716,7 @@ export default {
 
     const collectionRaritiesMatch = url.pathname.match(/^\/v2\/onchain-collections\/([^/]+)\/rarities$/);
     if (collectionRaritiesMatch && request.method === "GET") {
-      return handleCollectionRarities(collectionRaritiesMatch[1], env, corsHeaders);
+      return handleCollectionRarities(collectionRaritiesMatch[1], env, corsHeaders, ip);
     }
 
     // Intercepted ahead of the generic pass-through proxy below — same
@@ -678,12 +725,12 @@ export default {
     // 60s-per-datacenter Cache API.
     const floorStatsMatch = url.pathname.match(/^\/v2\/collections\/([^/]+)\/stats$/);
     if (floorStatsMatch && request.method === "GET") {
-      return handleFloorPriceStats(floorStatsMatch[1], env, corsHeaders);
+      return handleFloorPriceStats(floorStatsMatch[1], env, corsHeaders, ip);
     }
 
     const collectionSymbolMatch = url.pathname.match(/^\/v2\/onchain-collections\/([^/]+)\/symbol$/);
     if (collectionSymbolMatch && request.method === "GET") {
-      return handleCollectionSymbol(collectionSymbolMatch[1], url.searchParams.get("mint") || "", env, corsHeaders);
+      return handleCollectionSymbol(collectionSymbolMatch[1], url.searchParams.get("mint") || "", env, corsHeaders, ip);
     }
 
     // Outbound-to-Magic-Eden click tracking — same shape as ZurVault's
