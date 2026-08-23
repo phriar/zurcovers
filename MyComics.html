@@ -601,7 +601,16 @@ async function loadWallet(address){
     // Guarded on still-undefined in case a visitor already opened this
     // exact collection's panel before this loop reached it — the panel's
     // own lazy fetch (ensureRarityFloors) would have already set this.
-    if(allGroups[key].rarityFloors === undefined){
+    // Also skipped entirely for a collection where only one distinct
+    // comic is owned: completing (or being one away from completing) a
+    // set requires owning multiple different rarities of the same
+    // collection, which by definition can't be true here — eagerly
+    // checking it would just be a wasted call for a collection that will
+    // essentially always come back "missing several." Left undefined
+    // rather than {} so it stays checkable on demand if this specific
+    // collection's panel ever gets opened (ensureRarityFloors handles
+    // that), it just isn't part of the eager pass or the Almost There list.
+    if(allGroups[key].rarityFloors === undefined && groupByName(allGroups[key].items).size > 1){
       if(symbol){
         const rarityResult = await fetchListingsRarityFloors(symbol);
         if(rarityResult !== null) allGroups[key].rarityFloors = rarityResult;
