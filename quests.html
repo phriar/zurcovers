@@ -116,6 +116,16 @@
   .quest-badge.missed{ color:#e8917a; border-color:rgba(224,122,95,0.4); }
 
   .quest-requirement{ font-family:'Cormorant Garamond',serif; font-size:1.05rem; line-height:1.5; color:rgba(243,239,230,0.95); }
+  .req-breakdown{ display:flex; flex-direction:column; gap:10px; margin-top:2px; }
+  .req-group-head{ font-family:'DM Mono',monospace; font-size:.76rem; letter-spacing:.08em; text-transform:uppercase; color:rgba(243,239,230,0.55); margin-bottom:3px; }
+  .req-row{ display:flex; align-items:baseline; gap:8px; font-family:'DM Mono',monospace; font-size:.82rem; padding:2px 0; color:rgba(243,239,230,0.5); flex-wrap:wrap; }
+  .req-check{ width:14px; flex-shrink:0; color:rgba(243,239,230,0.3); font-weight:bold; }
+  .req-row.matched{ color:rgba(243,239,230,0.9); }
+  .req-row.matched .req-check{ color:var(--gold); }
+  .req-label{ flex-shrink:0; }
+  .req-match{ font-style:italic; color:rgba(243,239,230,0.4); }
+  .req-row.matched .req-match{ color:rgba(45,230,208,0.85); font-style:normal; }
+
   .quest-reward{ font-family:'DM Mono',monospace; font-size:.85rem; letter-spacing:.03em; color:rgba(243,239,230,0.7); }
   .quest-reward b{ color:var(--gold); font-weight:500; }
   .quest-caveat{ font-family:'DM Mono',monospace; font-size:.78rem; line-height:1.5; color:rgba(243,239,230,0.55); margin-top:2px; }
@@ -242,13 +252,13 @@ const QUESTS = [
       description: "Own 2 of: Showcase (1956-1978) #22, Green Lantern (1960-1986) #59, or All-American Comics (1939-1948) #16 (any rarity) — plus 1 of: Green Lantern (2023-) #1 or Blackest Night (2009-2010) #1 (any rarity). Must hold all at the quest snapshot.",
       groups: [
         { min: 2, items: [
-          { namePattern: /showcase\s*\(1956-1978\)\s*#22\b/i },
-          { namePattern: /green lantern\s*\(1960-1986\)\s*#59\b/i },
-          { namePattern: /all-american comics\s*\(1939-1948\)\s*#16\b/i },
+          { label: "Showcase (1956-1978) #22", namePattern: /showcase\s*\(1956-1978\)\s*#22\b/i },
+          { label: "Green Lantern (1960-1986) #59", namePattern: /green lantern\s*\(1960-1986\)\s*#59\b/i },
+          { label: "All-American Comics (1939-1948) #16", namePattern: /all-american comics\s*\(1939-1948\)\s*#16\b/i },
         ] },
         { min: 1, items: [
-          { namePattern: /green lantern\s*\(2023-?\)\s*#1(?!\d)/i },
-          { namePattern: /blackest night\s*\(2009-2010\)\s*#1(?!\d)/i },
+          { label: "Green Lantern (2023-) #1", namePattern: /green lantern\s*\(2023-?\)\s*#1(?!\d)/i },
+          { label: "Blackest Night (2009-2010) #1", namePattern: /blackest night\s*\(2009-2010\)\s*#1(?!\d)/i },
         ] },
       ]
     }
@@ -278,18 +288,56 @@ const questListEl = document.getElementById('quest-list');
 const walletInputEl = document.getElementById('wallet-input');
 const loadBtnEl = document.getElementById('load-btn');
 
-function ownsRequirementItem(item, assets){
-  return assets.some(a => {
+// Returns the actual owned asset(s) matching this requirement item, not
+// just a boolean — so the UI can show exactly which real comic (with its
+// own serial-bearing name) triggered the match. This is what lets a
+// visitor spot a false positive: a pattern that's broader than intended
+// would show up here matching something obviously wrong, instead of just
+// a silent "complete" with no way to check why.
+function matchingAssetsFor(item, assets){
+  return assets.filter(a => {
     if(item.namePattern && !item.namePattern.test(a.collectionName || '')) return false;
     if(item.rarity && normalizeRarity(a.attributes) !== item.rarity) return false;
     return true;
   });
+}
+function ownsRequirementItem(item, assets){
+  return matchingAssetsFor(item, assets).length > 0;
 }
 
 // How many distinct items within one group are satisfied — a group is
 // met once this reaches its own `min` (e.g. 2 of 3 classic issues).
 function groupSatisfiedCount(group, assets){
   return group.items.filter(item => ownsRequirementItem(item, assets)).length;
+}
+
+// Per-item verification list: what this item is looking for (label) next
+// to what, if anything, actually matched in this wallet — shown for
+// every item regardless of match state, since seeing the misses is as
+// useful for trust as seeing the hits.
+function requirementGroupHtml(group, assets){
+  const satisfied = groupSatisfiedCount(group, assets);
+  const rows = group.items.map(item => {
+    const matches = matchingAssetsFor(item, assets);
+    const matched = matches.length > 0;
+    const matchText = matched ? matches.map(a => esc(a.name)).join(', ') : 'not found in this wallet';
+    return `
+      <div class="req-row ${matched ? 'matched' : ''}">
+        <span class="req-check">${matched ? '&check;' : '&mdash;'}</span>
+        <span class="req-label">${esc(item.label || '')}</span>
+        <span class="req-match">${matchText}</span>
+      </div>`;
+  }).join('');
+  return `
+    <div class="req-group">
+      <div class="req-group-head">Need ${group.min} of ${group.items.length} &mdash; have ${satisfied}</div>
+      ${rows}
+    </div>`;
+}
+function requirementBreakdownHtml(quest, assets){
+  const groups = quest.requirement.groups;
+  if(!groups || groups.length === 0) return '';
+  return `<div class="req-breakdown">${groups.map(g => requirementGroupHtml(g, assets)).join('')}</div>`;
 }
 
 // null = requirement not entered yet (can't be checked either way),
@@ -334,6 +382,7 @@ function questCardHtml(quest, assets){
       <div class="quest-title">${esc(quest.title)}</div>
       <div class="quest-badge ${state}">${esc(label)}</div>
       <div class="quest-requirement">${esc(quest.requirement.description)}</div>
+      ${requirementBreakdownHtml(quest, assets)}
       <div class="quest-reward">Reward: <b>${esc(quest.reward)}</b></div>
       ${state === 'missed' ? `<div class="quest-caveat">Checked against what's in this wallet right now — if something changed hands after Candy Digital's snapshot, this may not match their own result.</div>` : ''}
     </div>
