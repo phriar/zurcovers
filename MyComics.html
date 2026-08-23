@@ -415,6 +415,7 @@ const ME_BASE = ME_PROXY_BASE + "/v2";
 const WALLET_KEY = 'zurcovers_wallet';
 const SOL_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const LOOKUP_PACE_MS = 900; // same pacing discover.html uses against Magic Eden's per-minute rate limit
+const EAGER_BATCH_SIZE = 5; // collections processed concurrently per paced "tick" in the eager loading loop — see loadWallet
 
 // zurcovers is DC digital comics only — Candy Digital (the same minting
 // platform behind these DC drops) also mints non-comic collectibles
@@ -667,18 +668,28 @@ async function loadWallet(address){
   // penalty at all, so a wallet's second-ever load (or one sharing
   // popular collections with other wallets already checked) gets
   // noticeably faster, not just "the network calls are quicker."
-  let done = 0;
-  for(const key of groupKeys){
-    let allCacheHits = true;
+  //
+  // Collections are also processed EAGER_BATCH_SIZE at a time, concurrently,
+  // rather than one at a time — even with the cache-hit skip above, a
+  // wallet full of never-before-seen collections was still fully serial:
+  // one collection's round trip had to finish before the next one's even
+  // started. Pacing still applies between batches (not between individual
+  // collections within a batch, and not at all if nothing in the batch
+  // needed a live call), so this doesn't remove the protection against
+  // bursting Magic Eden/Helius — it just does EAGER_BATCH_SIZE collections'
+  // worth of work inside each paced "tick" instead of one.
+
+  async function processCollectionEagerly(key){
+    let liveCall = false;
 
     const symbolResult = await resolveCollectionSymbol(key, allGroups[key].sampleMint);
     allGroups[key].symbol = symbolResult.value;
-    if(!symbolResult.cacheHit) allCacheHits = false;
+    if(!symbolResult.cacheHit) liveCall = true;
 
     if(symbolResult.value){
       const floorResult = await fetchFloorPrice(symbolResult.value);
       allGroups[key].floor = floorResult.value;
-      if(!floorResult.cacheHit) allCacheHits = false;
+      if(!floorResult.cacheHit) liveCall = true;
     } else {
       allGroups[key].floor = null;
     }
@@ -704,17 +715,27 @@ async function loadWallet(address){
     if(allGroups[key].knownRarities === undefined && distinctOwnedRarityCount(allGroups[key].items) > 1){
       const rarityResult = await fetchCollectionRarities(key);
       if(rarityResult.value !== null) allGroups[key].knownRarities = rarityResult.value;
-      if(!rarityResult.cacheHit) allCacheHits = false;
+      if(!rarityResult.cacheHit) liveCall = true;
     }
 
-    done++;
-    setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Checking ${done}/${groupKeys.length}…`);
+    // Per-card UI patches happen as soon as this one collection resolves
+    // — not held back until the rest of its batch finishes, since these
+    // are independent DOM updates with no reason to wait on each other.
     updatePriceForCard(key, allGroups[key].floor);
     updateCompleteBadgeForCard(key);
+    return liveCall;
+  }
+
+  let done = 0;
+  for(let i = 0; i < groupKeys.length; i += EAGER_BATCH_SIZE){
+    const batch = groupKeys.slice(i, i + EAGER_BATCH_SIZE);
+    const liveCallFlags = await Promise.all(batch.map(processCollectionEagerly));
+    done += batch.length;
+    setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Checking ${done}/${groupKeys.length}…`);
     statCompleteEl.textContent = countCompleteSets();
     renderNearCompleteSets();
     updatePortfolioValue();
-    if(!allCacheHits) await sleep(LOOKUP_PACE_MS);
+    if(liveCallFlags.some(Boolean)) await sleep(LOOKUP_PACE_MS);
   }
 
   setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Done.`);
