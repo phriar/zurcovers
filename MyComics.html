@@ -380,6 +380,7 @@
   <span class="control-label">Sort</span>
   <button class="pill active" id="sort-default" disabled>Recently Added</button>
   <button class="pill" id="sort-price" disabled>Highest Floor First</button>
+  <button class="pill" id="sort-complete" disabled>Complete Sets First</button>
 </div>
 
 <div id="status"></div>
@@ -447,6 +448,7 @@ const loadBtnEl = document.getElementById('load-btn');
 const controlsRowEl = document.getElementById('controls-row');
 const sortDefaultBtn = document.getElementById('sort-default');
 const sortPriceBtn = document.getElementById('sort-price');
+const sortCompleteBtn = document.getElementById('sort-complete');
 
 // allGroups is the single source of truth for everything on this page —
 // keyed by collectionKey. Each value accumulates floor/symbol/knownRarities
@@ -594,6 +596,7 @@ async function loadWallet(address){
   sortMode = 'default';
   sortDefaultBtn.classList.add('active');
   sortPriceBtn.classList.remove('active');
+  sortCompleteBtn.classList.remove('active');
   setStatus('Fetching wallet assets…');
 
   let json;
@@ -638,6 +641,7 @@ async function loadWallet(address){
   controlsRowEl.style.display = 'flex';
   sortDefaultBtn.disabled = false;
   sortPriceBtn.disabled = false;
+  sortCompleteBtn.disabled = false;
 
   // Rarity-summary is folded into this same eager, paced loop (not left
   // lazy-only) so a "complete set" badge can show on the shelf itself
@@ -816,6 +820,17 @@ function sortedKeys(){
   const keys = Object.keys(allGroups);
   if(sortMode === 'price-desc'){
     return keys.sort((a, b) => (allGroups[b].floor ?? -Infinity) - (allGroups[a].floor ?? -Infinity));
+  }
+  if(sortMode === 'complete-first'){
+    // A collection not yet checked (computeMissingRarities returns
+    // undefined) sorts as "not complete" rather than being excluded or
+    // erroring — same safe-on-partial-data approach as price-desc's ??
+    // -Infinity, so this sort is usable immediately, not gated behind the
+    // whole eager loop finishing. Array.prototype.sort is stable, so
+    // collections within the same complete/incomplete group keep their
+    // original relative order rather than being shuffled.
+    const isComplete = (key) => computeMissingRarities(key)?.length === 0;
+    return keys.sort((a, b) => (isComplete(b) ? 1 : 0) - (isComplete(a) ? 1 : 0));
   }
   return keys; // 'default' — whatever order collections first appeared in the wallet fetch
 }
@@ -1194,12 +1209,21 @@ sortDefaultBtn.addEventListener('click', () => {
   sortMode = 'default';
   sortDefaultBtn.classList.add('active');
   sortPriceBtn.classList.remove('active');
+  sortCompleteBtn.classList.remove('active');
   render();
 });
 sortPriceBtn.addEventListener('click', () => {
   sortMode = 'price-desc';
   sortPriceBtn.classList.add('active');
   sortDefaultBtn.classList.remove('active');
+  sortCompleteBtn.classList.remove('active');
+  render();
+});
+sortCompleteBtn.addEventListener('click', () => {
+  sortMode = 'complete-first';
+  sortCompleteBtn.classList.add('active');
+  sortDefaultBtn.classList.remove('active');
+  sortPriceBtn.classList.remove('active');
   render();
 });
 
