@@ -96,6 +96,32 @@
     color:rgba(243,239,230,0.89); font-family:'DM Mono',monospace;
   }
 
+  /* "Almost There" — collections missing 1+ currently-listed rarity tier,
+     closest-to-complete first. Built entirely from data the eager
+     per-collection loading loop already fetches (no extra network calls),
+     re-rendered as each collection's rarity check resolves. Capped to the
+     closest 8 so this stays a quick scan, not a second shelf — the point
+     is "here's what to look at next," not a full inventory (that's what
+     opening each collection's own panel is for). */
+  .near-complete{
+    position:relative; z-index:1; margin:0 32px 16px; padding:14px 18px;
+    border:1px solid rgba(232,178,77,0.3); border-radius:4px; background:rgba(232,178,77,0.07);
+  }
+  .nc-heading{
+    font-family:'Bangers',cursive; letter-spacing:.03em; font-size:1.1rem; color:var(--gold);
+    margin-bottom:8px;
+  }
+  .nc-row{
+    display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap;
+    padding:8px 0; border-top:1px solid rgba(243,239,230,0.1); cursor:pointer;
+  }
+  .nc-row:first-of-type{ border-top:none; padding-top:0; }
+  .nc-row:hover .nc-name{ color:var(--gold); }
+  .nc-name{ font-family:'Cormorant Garamond',serif; font-size:1rem; color:rgba(243,239,230,0.92); transition:color .15s; }
+  .nc-status{ font-family:'DM Mono',monospace; font-size:.78rem; color:rgba(243,239,230,0.7); text-align:right; }
+  .nc-status b{ color:#e8917a; font-weight:500; }
+  .nc-more{ margin-top:10px; font-family:'DM Mono',monospace; font-size:.74rem; color:rgba(243,239,230,0.55); }
+
   .comic-rarity{
     display:inline-block; font-family:'DM Mono',monospace; font-size:.85rem; letter-spacing:.06em; text-transform:uppercase;
     padding:1px 7px; border-radius:9px; border:1px solid; margin-top:3px;
@@ -290,7 +316,9 @@
     }
     .collector-summary{ margin-left:18px; margin-right:18px; flex-wrap:wrap; }
     .stat{ min-width:44%; }
-    .value-note{ margin-left:18px; margin-right:18px; }
+    .value-note, .near-complete{ margin-left:18px; margin-right:18px; }
+    .nc-row{ flex-direction:column; gap:2px; }
+    .nc-status{ text-align:left; }
     .shelf{ padding-left:18px; padding-right:18px; gap:22px 12px; justify-content:space-between; }
     .comic{ width:clamp(140px, 44vw, 190px); }
     .entry-panel button{ width:100%; }
@@ -320,9 +348,15 @@
   <div class="stat"><div class="stat-value" id="stat-unique">&mdash;</div><div class="stat-label">Unique Comics</div></div>
   <div class="stat"><div class="stat-value" id="stat-total">&mdash;</div><div class="stat-label">Total Copies</div></div>
   <div class="stat"><div class="stat-value" id="stat-collections">&mdash;</div><div class="stat-label">Collections</div></div>
+  <div class="stat stat-value-tile"><div class="stat-value" id="stat-complete">&mdash;</div><div class="stat-label">Complete Sets</div></div>
   <div class="stat stat-value-tile"><div class="stat-value" id="stat-value">&mdash;</div><div class="stat-label">Est. Floor Value</div></div>
 </div>
 <div class="value-note" id="value-note" style="display:none">Estimated using each comic's current Magic Eden collection floor &mdash; the going market rate for that print, not necessarily what your specific serial would sell for.</div>
+
+<div class="near-complete" id="near-complete" style="display:none">
+  <div class="nc-heading">Almost There</div>
+  <div id="near-complete-list"></div>
+</div>
 
 <div class="controls-row" id="controls-row" style="display:none">
   <span class="control-label">Sort</span>
@@ -373,7 +407,10 @@ const valueNoteEl = document.getElementById('value-note');
 const statUniqueEl = document.getElementById('stat-unique');
 const statTotalEl = document.getElementById('stat-total');
 const statCollectionsEl = document.getElementById('stat-collections');
+const statCompleteEl = document.getElementById('stat-complete');
 const statValueEl = document.getElementById('stat-value');
+const nearCompleteEl = document.getElementById('near-complete');
+const nearCompleteListEl = document.getElementById('near-complete-list');
 const walletInputEl = document.getElementById('wallet-input');
 const loadBtnEl = document.getElementById('load-btn');
 const controlsRowEl = document.getElementById('controls-row');
@@ -506,6 +543,8 @@ async function loadWallet(address){
   collectorSummaryEl.style.display = 'none';
   valueNoteEl.style.display = 'none';
   statValueEl.textContent = '…';
+  statCompleteEl.textContent = '…';
+  nearCompleteEl.style.display = 'none';
   controlsRowEl.style.display = 'none';
   sortMode = 'default';
   sortDefaultBtn.classList.add('active');
@@ -574,6 +613,8 @@ async function loadWallet(address){
     setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Checking ${done}/${groupKeys.length}…`);
     updatePriceForCard(key, allGroups[key].floor);
     updateCompleteBadgeForCard(key);
+    statCompleteEl.textContent = countCompleteSets();
+    renderNearCompleteSets();
     updatePortfolioValue();
     await sleep(LOOKUP_PACE_MS);
   }
@@ -704,6 +745,58 @@ function updateCompleteBadgeForCard(key){
   badgeEl.style.display = isComplete ? 'block' : 'none';
   card.classList.toggle('is-complete', isComplete);
 }
+
+// Recomputed fresh from allGroups each call rather than tracked
+// incrementally — cheap even for a large wallet (tens, not thousands, of
+// collections), and it means both the stat count and the "Almost There"
+// list always agree with what computeMissingRarities() would say if you
+// opened that collection's own panel right now.
+function countCompleteSets(){
+  let n = 0;
+  for(const key of Object.keys(allGroups)){
+    if(computeMissingRarities(key)?.length === 0) n++;
+  }
+  return n;
+}
+
+const NEAR_COMPLETE_DISPLAY_CAP = 8;
+
+function computeNearCompleteSets(){
+  const rows = [];
+  for(const key of Object.keys(allGroups)){
+    const missing = computeMissingRarities(key);
+    if(Array.isArray(missing) && missing.length > 0){
+      rows.push({ key, name: allGroups[key].name, missing });
+    }
+  }
+  rows.sort((a, b) => a.missing.length - b.missing.length);
+  return rows;
+}
+
+// Re-rendered wholesale each time (not patched in place) — the whole
+// point is showing the CLOSEST-to-complete sets first, so as more
+// collections' rarity checks resolve, ranking can shift and the list
+// needs to be rebuilt, not just appended to.
+function renderNearCompleteSets(){
+  const rows = computeNearCompleteSets();
+  if(rows.length === 0){
+    nearCompleteEl.style.display = 'none';
+    return;
+  }
+  nearCompleteEl.style.display = 'block';
+  const shown = rows.slice(0, NEAR_COMPLETE_DISPLAY_CAP);
+  nearCompleteListEl.innerHTML = shown.map(r => `
+    <div class="nc-row" data-open-key="${esc(r.key)}">
+      <div class="nc-name">${esc(r.name)}</div>
+      <div class="nc-status">Missing ${r.missing.length}: <b>${r.missing.map(esc).join(', ')}</b></div>
+    </div>
+  `).join('') + (rows.length > shown.length ? `<div class="nc-more">+ ${rows.length - shown.length} more collection${rows.length - shown.length !== 1 ? 's' : ''} missing at least one rarity</div>` : '');
+}
+nearCompleteListEl.addEventListener('click', (e) => {
+  const row = e.target.closest('[data-open-key]');
+  if(!row) return;
+  openCollectionModal(row.dataset.openKey);
+});
 
 // Estimated portfolio value — sum of each held asset's own collection
 // floor price. Called after every price resolves during the loop above,
