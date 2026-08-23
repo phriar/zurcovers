@@ -237,6 +237,13 @@
     text-decoration:none; display:block; cursor:pointer;
   }
   .comic:hover{ transform:rotate(0deg) translateY(-10px) scale(1.06); z-index:5; }
+  /* Positioning context for the badges below (price tag, qty sticker,
+     complete ribbon) — scoped to just the cover art, not the whole card,
+     so their "hang off this corner" offsets are always relative to the
+     image itself regardless of how tall the caption underneath happens
+     to be (a card with a longer collection name, or a shorter caption
+     after a line gets removed, must never shift where these land). */
+  .cover-wrap{ position:relative; }
   .comic .cover{
     width:100%; aspect-ratio:2/3; object-fit:cover; display:block; border-radius:2px;
     box-shadow:0 6px 16px rgba(0,0,0,0.5), 0 1px 0 rgba(255,255,255,0.06) inset;
@@ -709,10 +716,12 @@ function collectionCardHtml(key){
   const isComplete = computeMissingRarities(key)?.length === 0;
   return `
     <div class="comic${isComplete ? ' is-complete' : ''}" style="--tilt:${tilt}" role="button" tabindex="0" data-card-id="${esc(key)}">
-      <div class="complete-ribbon" data-complete-badge style="display:${isComplete ? 'block' : 'none'}">Complete Set</div>
-      ${image ? `<img class="cover" src="${esc(image)}" loading="lazy" onerror="this.style.opacity=0.2">` : `<div class="no-preview">No preview available</div>`}
-      ${totalCount > 1 ? `<div class="qty-sticker">&times;${totalCount}</div>` : ''}
-      ${priceTagHtmlFor(g.floor)}
+      <div class="cover-wrap">
+        <div class="complete-ribbon" data-complete-badge style="display:${isComplete ? 'block' : 'none'}">Complete Set</div>
+        ${image ? `<img class="cover" src="${esc(image)}" loading="lazy" onerror="this.style.opacity=0.2">` : `<div class="no-preview">No preview available</div>`}
+        ${totalCount > 1 ? `<div class="qty-sticker">&times;${totalCount}</div>` : ''}
+        ${priceTagHtmlFor(g.floor)}
+      </div>
       <div class="caption">
         <div class="name">${esc(g.name)}</div>
         <div class="sub">${distinctCount} comic${distinctCount !== 1 ? 's' : ''} &middot; ${totalCount} cop${totalCount !== 1 ? 'ies' : 'y'} owned</div>
