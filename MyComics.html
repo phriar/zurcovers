@@ -641,16 +641,22 @@ async function loadWallet(address){
     // Guarded on still-undefined in case a visitor already opened this
     // exact collection's panel before this loop reached it — the panel's
     // own lazy fetch (ensureKnownRarities) would have already set this.
-    // Also skipped entirely for a collection where only one distinct
-    // comic is owned: completing (or being one away from completing) a
-    // set requires owning multiple different rarities of the same
-    // collection, which by definition can't be true here — eagerly
+    // Also skipped entirely when the wallet owns fewer than 2 distinct
+    // rarity tiers of this collection: completing (or being one away
+    // from completing) a set requires owning multiple different
+    // rarities, which by definition can't be true here — eagerly
     // checking it would just be a wasted call for a collection that will
-    // essentially always come back "missing several." Left undefined
-    // rather than a set so it stays checkable on demand if this specific
-    // collection's panel ever gets opened (ensureKnownRarities handles
-    // that), it just isn't part of the eager pass or the Almost There list.
-    if(allGroups[key].knownRarities === undefined && groupByName(allGroups[key].items).size > 1){
+    // essentially always come back "missing several." Deliberately
+    // distinctOwnedRarityCount, not groupByName's distinct-title count —
+    // owning one of every rarity of the same comic (the normal shape of
+    // an actual complete set) is exactly 1 title, and title-based gating
+    // was incorrectly skipping those wallets (confirmed live: Detective
+    // Comics #38 and Showcase #4, both genuinely complete, never got
+    // checked). Left undefined rather than a set so it stays checkable on
+    // demand if this specific collection's panel ever gets opened
+    // (ensureKnownRarities handles that), it just isn't part of the eager
+    // pass or the Almost There list.
+    if(allGroups[key].knownRarities === undefined && distinctOwnedRarityCount(allGroups[key].items) > 1){
       const rarityResult = await fetchCollectionRarities(key);
       if(rarityResult !== null) allGroups[key].knownRarities = rarityResult;
     }
@@ -690,6 +696,23 @@ function groupByName(items){
     byName.set(k, byName.get(k) + 1);
   }
   return byName;
+}
+
+// Distinct rarity TIERS owned within one collection — NOT the same as
+// groupByName's distinct titles. Owning one copy of every rarity tier of
+// the exact same comic (the most common way to end up with an actual
+// complete set) collapses to a single title under groupByName, since
+// that groups by cleaned name only — using title count as a "worth
+// checking" gate incorrectly skipped exactly the wallets most likely to
+// have a genuine complete set. This counts what actually matters for
+// that question: how many different rarities does the wallet hold here.
+function distinctOwnedRarityCount(items){
+  const rarities = new Set();
+  for(const item of items){
+    const r = normalizeRarity(item.attributes);
+    if(r) rarities.add(r);
+  }
+  return rarities.size;
 }
 
 // Distinct (title, rarity) pairs within one collection — the actual tiles
