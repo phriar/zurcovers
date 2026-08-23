@@ -99,6 +99,20 @@ const CLICK_TTL_SECONDS = 60 * 60 * 24 * 90; // 90 days, same retention as ZurVa
 const COLLECTION_RARITY_CACHE_TTL_SECONDS = 60 * 60 * 24 * 30;
 const COLLECTION_ASSET_MAX_PAGES = 5; // getAssetsByGroup, 1000/page — generous for a single comic drop's total supply
 
+// FLOOR PRICE CACHE — intercepts GET /v2/collections/{symbol}/stats before
+// it would otherwise fall through to the generic pass-through proxy below,
+// wrapping it in a KV cache (globally replicated) instead of just that
+// proxy's 60s-per-datacenter Cache API. A collection's floor price isn't
+// wallet-specific, so every visitor checking the same collection sharing
+// one cached answer is a real win — noticeably fewer live Magic Eden
+// calls, and "Highest Floor First" has real numbers to sort by sooner
+// instead of waiting on a fresh fetch per collection every time. 15
+// minutes balances staleness against that: long enough to get real reuse
+// across visitors, short enough that a real price move shows up soon.
+// Same URL frontend pages already call (fetchFloorPrice in every HTML
+// file) — nothing needed on that side, this is transparent.
+const FLOOR_PRICE_CACHE_TTL_SECONDS = 60 * 15;
+
 // ---------------------------------------------------------------------
 // WALLET ASSETS — GET /v2/wallet-assets?address={pubkey}, backs
 // slideshow.html and wallet.html. Server-side Helius lookup so visitors
@@ -524,6 +538,47 @@ async function handleCollectionRarities(collectionKey, env, corsHeaders) {
   }
 }
 
+async function handleFloorPriceStats(symbol, env, corsHeaders) {
+  if (!SAFE_KEY_RE.test(symbol)) {
+    return new Response(JSON.stringify({ error: "invalid_symbol" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const cacheKey = `floorprice:${symbol}`;
+  const cached = await env.ZURCOVERS_CACHE.get(cacheKey);
+  if (cached) {
+    return new Response(cached, {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json", "X-Zurcovers-Floor-Cache": "HIT" },
+    });
+  }
+
+  try {
+    const meRes = await fetch(`${ME_ORIGIN}/v2/collections/${symbol}/stats`, {
+      headers: { Accept: "application/json" },
+    });
+    const body = await meRes.text();
+    // Same shape Magic Eden's own /stats returns — this is a caching
+    // wrapper, not a transform, so fetchFloorPrice's parsing (floorPrice
+    // in lamports) keeps working unchanged. Only cache a real success —
+    // an error response isn't worth remembering for 15 minutes.
+    if (meRes.ok) {
+      await env.ZURCOVERS_CACHE.put(cacheKey, body, { expirationTtl: FLOOR_PRICE_CACHE_TTL_SECONDS });
+    }
+    return new Response(body, {
+      status: meRes.status,
+      headers: { ...corsHeaders, "Content-Type": "application/json", "X-Zurcovers-Floor-Cache": "MISS" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: "floor_price_failed", message: err.message }), {
+      status: 502,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+}
+
 // ---------------------------------------------------------------------
 
 export default {
@@ -548,6 +603,15 @@ export default {
     const collectionRaritiesMatch = url.pathname.match(/^\/v2\/onchain-collections\/([^/]+)\/rarities$/);
     if (collectionRaritiesMatch && request.method === "GET") {
       return handleCollectionRarities(collectionRaritiesMatch[1], env, corsHeaders);
+    }
+
+    // Intercepted ahead of the generic pass-through proxy below — same
+    // URL every page already calls, now KV-cached (see
+    // FLOOR_PRICE_CACHE_TTL_SECONDS above) instead of just that proxy's
+    // 60s-per-datacenter Cache API.
+    const floorStatsMatch = url.pathname.match(/^\/v2\/collections\/([^/]+)\/stats$/);
+    if (floorStatsMatch && request.method === "GET") {
+      return handleFloorPriceStats(floorStatsMatch[1], env, corsHeaders);
     }
 
     // Outbound-to-Magic-Eden click tracking — same shape as ZurVault's

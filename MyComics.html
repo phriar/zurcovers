@@ -622,6 +622,16 @@ async function loadWallet(address){
   render(); // one full paint, price tags start as "…" — resolved prices patch in place below, never a second full re-render
   updateCollectorStats();
   updatePortfolioValue();
+  // Sort unlocks immediately rather than waiting for the whole eager loop
+  // below to finish — with a wallet spanning many collections, that wait
+  // can run into a minute or more. "Highest Floor First" works correctly
+  // on partial data (sortedKeys()'s ?? -Infinity fallback sorts anything
+  // still unresolved last), so there's real value in letting a visitor
+  // sort early and see it keep re-settling as more prices come in, rather
+  // than staring at a disabled button until everything's done.
+  controlsRowEl.style.display = 'flex';
+  sortDefaultBtn.disabled = false;
+  sortPriceBtn.disabled = false;
 
   // Rarity-summary is folded into this same eager, paced loop (not left
   // lazy-only) so a "complete set" badge can show on the shelf itself
@@ -672,9 +682,6 @@ async function loadWallet(address){
   }
 
   setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Done.`);
-  controlsRowEl.style.display = 'flex';
-  sortDefaultBtn.disabled = false;
-  sortPriceBtn.disabled = false;
 }
 
 // Strips the trailing "(123/456)" edition marker or bare trailing serial
