@@ -415,6 +415,18 @@ const WALLET_KEY = 'zurcovers_wallet';
 const SOL_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const LOOKUP_PACE_MS = 900; // same pacing discover.html uses against Magic Eden's per-minute rate limit
 
+// zurcovers is DC digital comics only — Candy Digital (the same minting
+// platform behind these DC drops) also mints non-comic collectibles
+// (MLB, "Inklings," etc.) that can end up in the same wallet. Filtered
+// out at the source, before anything else touches the asset list, so
+// they never appear anywhere: not the shelf, not the collector stats, not
+// the "N NFTs across M collections" counts. Matched case-insensitively
+// against the collection's own name.
+const EXCLUDED_COLLECTION_NAME_PATTERNS = [/\bmlb\b/i, /inkling/i];
+function isExcludedCollection(name){
+  return EXCLUDED_COLLECTION_NAME_PATTERNS.some(re => re.test(name || ''));
+}
+
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 const statusEl = document.getElementById('status');
@@ -590,7 +602,7 @@ async function loadWallet(address){
     return;
   }
 
-  const assets = json.assets || [];
+  const assets = (json.assets || []).filter(a => !isExcludedCollection(a.collectionName));
   if(assets.length === 0){
     setStatus('No NFTs found in this wallet.', true);
     return;
