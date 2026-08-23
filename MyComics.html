@@ -495,18 +495,34 @@ function hashTilt(s){
   return deg;
 }
 
-async function resolveMESymbol(mintAddress){
+// Shared by every cached Worker endpoint (symbol, floor, rarities) — each
+// one reports X-Zurcovers-Cache-Status: HIT/MISS, read here so the eager
+// loading loop can tell "this collection cost nothing, no external API
+// was actually touched" apart from "this just did a live lookup," and
+// pace itself accordingly instead of pausing the same fixed amount
+// regardless of whether anything was actually fetched live.
+async function fetchCached(url){
   try{
-    const res = await fetch(`${ME_BASE}/tokens/${mintAddress}`);
-    if(!res.ok) return null;
+    const res = await fetch(url);
+    const cacheHit = res.headers.get('x-zurcovers-cache-status') === 'HIT';
+    if(!res.ok) return { ok:false, data:null, cacheHit };
     const data = await res.json();
-    const collectionField = data?.collection;
-    return (typeof collectionField === 'string')
-      ? collectionField
-      : (collectionField?.symbol || collectionField?.name || data?.collectionSymbol || null);
+    return { ok:true, data, cacheHit };
   }catch(e){
-    return null;
+    return { ok:false, data:null, cacheHit:false };
   }
+}
+
+// Resolves a collection's Magic Eden symbol through the Worker's own
+// /onchain-collections/{collectionKey}/symbol, cached by the shared
+// on-chain collection key rather than by mint (see the Worker's own
+// comment on COLLECTION_SYMBOL_CACHE_TTL_SECONDS for why that matters —
+// a per-mint cache barely helps since a fresh wallet almost never holds
+// the exact mint queried before, even for an already-resolved
+// collection). sampleMint is only needed on a cache miss.
+async function resolveCollectionSymbol(collectionKey, sampleMint){
+  const { data, cacheHit } = await fetchCached(`${ME_BASE}/onchain-collections/${collectionKey}/symbol?mint=${sampleMint}`);
+  return { value: data?.symbol || null, cacheHit };
 }
 
 // Magic Eden's own /v2/tokens/{mint} response — the same endpoint
@@ -533,14 +549,9 @@ async function resolveCandyUrl(mintAddress){
 }
 
 async function fetchFloorPrice(symbol){
-  try{
-    const res = await fetch(`${ME_BASE}/collections/${symbol}/stats`);
-    if(!res.ok) return null;
-    const data = await res.json();
-    return typeof data?.floorPrice === 'number' ? data.floorPrice / 1e9 : null;
-  }catch(e){
-    return null;
-  }
+  const { data, cacheHit } = await fetchCached(`${ME_BASE}/collections/${symbol}/stats`);
+  const value = typeof data?.floorPrice === 'number' ? data.floorPrice / 1e9 : null;
+  return { value, cacheHit };
 }
 
 // Which rarity tiers actually exist in this collection, from Helius's
@@ -560,20 +571,15 @@ async function fetchFloorPrice(symbol){
 // those together previously meant a failed fetch got permanently cached
 // as "this collection has no rarity tiers."
 async function fetchCollectionRarities(collectionKey){
-  try{
-    const res = await fetch(`${ME_BASE}/onchain-collections/${collectionKey}/rarities`);
-    if(!res.ok) return null;
-    const data = await res.json();
-    const raw = Array.isArray(data?.rarities) ? data.rarities : [];
-    const normalized = new Set();
-    for(const r of raw){
-      const label = normalizeRarityValue(r);
-      if(label) normalized.add(label);
-    }
-    return normalized;
-  }catch(e){
-    return null;
+  const { ok, data, cacheHit } = await fetchCached(`${ME_BASE}/onchain-collections/${collectionKey}/rarities`);
+  if(!ok) return { value: null, cacheHit };
+  const raw = Array.isArray(data?.rarities) ? data.rarities : [];
+  const normalized = new Set();
+  for(const r of raw){
+    const label = normalizeRarityValue(r);
+    if(label) normalized.add(label);
   }
+  return { value: normalized, cacheHit };
 }
 
 async function loadWallet(address){
@@ -641,14 +647,38 @@ async function loadWallet(address){
   // Helius call each time. ensureKnownRarities() below still exists for
   // the popup's lazy path (a collection this loop hasn't reached yet, or a
   // retry after a failed check) — it's a no-op once g.knownRarities is
-  // already set here. This check no longer depends on a resolved Magic
-  // Eden symbol at all — it only needs the on-chain collectionKey (this
-  // loop's own `key`), which every collection has unconditionally.
+  // already set here.
+  //
+  // Every one of the three lookups per collection (symbol, floor, rarity)
+  // is now backed by a global KV cache — but the pacing sleep below was
+  // still unconditional, waiting the full LOOKUP_PACE_MS after every
+  // single collection regardless of whether anything was actually fetched
+  // live. That made caching invisible to wall-clock load time: a wallet
+  // with 30 collections took at least 30×900ms no matter how fast the
+  // cached responses came back. Now each lookup reports whether it was a
+  // cache hit (see fetchCached), and the pacing delay — which exists
+  // specifically to protect the *live* upstream APIs from a burst of
+  // requests — only applies when this collection actually cost a live
+  // call. A collection where all three are cache hits costs no pacing
+  // penalty at all, so a wallet's second-ever load (or one sharing
+  // popular collections with other wallets already checked) gets
+  // noticeably faster, not just "the network calls are quicker."
   let done = 0;
   for(const key of groupKeys){
-    const symbol = await resolveMESymbol(allGroups[key].sampleMint);
-    allGroups[key].symbol = symbol;
-    allGroups[key].floor = symbol ? await fetchFloorPrice(symbol) : null;
+    let allCacheHits = true;
+
+    const symbolResult = await resolveCollectionSymbol(key, allGroups[key].sampleMint);
+    allGroups[key].symbol = symbolResult.value;
+    if(!symbolResult.cacheHit) allCacheHits = false;
+
+    if(symbolResult.value){
+      const floorResult = await fetchFloorPrice(symbolResult.value);
+      allGroups[key].floor = floorResult.value;
+      if(!floorResult.cacheHit) allCacheHits = false;
+    } else {
+      allGroups[key].floor = null;
+    }
+
     // Guarded on still-undefined in case a visitor already opened this
     // exact collection's panel before this loop reached it — the panel's
     // own lazy fetch (ensureKnownRarities) would have already set this.
@@ -669,8 +699,10 @@ async function loadWallet(address){
     // pass or the Almost There list.
     if(allGroups[key].knownRarities === undefined && distinctOwnedRarityCount(allGroups[key].items) > 1){
       const rarityResult = await fetchCollectionRarities(key);
-      if(rarityResult !== null) allGroups[key].knownRarities = rarityResult;
+      if(rarityResult.value !== null) allGroups[key].knownRarities = rarityResult.value;
+      if(!rarityResult.cacheHit) allCacheHits = false;
     }
+
     done++;
     setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Checking ${done}/${groupKeys.length}…`);
     updatePriceForCard(key, allGroups[key].floor);
@@ -678,7 +710,7 @@ async function loadWallet(address){
     statCompleteEl.textContent = countCompleteSets();
     renderNearCompleteSets();
     updatePortfolioValue();
-    await sleep(LOOKUP_PACE_MS);
+    if(!allCacheHits) await sleep(LOOKUP_PACE_MS);
   }
 
   setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Done.`);
@@ -1097,9 +1129,9 @@ const queueCandyLookup = makeQueue();
 async function ensureKnownRarities(key){
   const g = allGroups[key];
   if(!g || g.knownRarities !== undefined) return;
-  const result = await queueRarityCheck(() => fetchCollectionRarities(key));
-  if(result !== null){
-    g.knownRarities = result;
+  const { value } = await queueRarityCheck(() => fetchCollectionRarities(key));
+  if(value !== null){
+    g.knownRarities = value;
     g.rarityFetchFailed = false;
   } else {
     g.rarityFetchFailed = true;

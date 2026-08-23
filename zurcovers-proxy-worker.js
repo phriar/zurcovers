@@ -113,6 +113,21 @@ const COLLECTION_ASSET_MAX_PAGES = 5; // getAssetsByGroup, 1000/page — generou
 // file) — nothing needed on that side, this is transparent.
 const FLOOR_PRICE_CACHE_TTL_SECONDS = 60 * 15;
 
+// COLLECTION SYMBOL CACHE — GET /v2/onchain-collections/{collectionKey}/
+// symbol?mint={sampleMint}. Resolving "what Magic Eden symbol does this
+// collection use" still needs one live call to /v2/tokens/{mint} the
+// first time, but caching that by mint (the generic proxy's 60s Cache API
+// does this today) barely helps: a fresh wallet almost never holds the
+// exact mint that was queried before, even if it holds a different mint
+// from a collection whose symbol was already resolved for someone else.
+// Caching by collectionKey instead — the same stable on-chain grouping
+// value already used for the rarity cache above — means the FIRST wallet
+// anywhere to reveal a given collection resolves it once, and every other
+// wallet holding any mint from that same collection gets an instant hit
+// regardless of which specific mint they happen to own. 30 days: a
+// collection's assigned Magic Eden symbol is effectively permanent.
+const COLLECTION_SYMBOL_CACHE_TTL_SECONDS = 60 * 60 * 24 * 30;
+
 // ---------------------------------------------------------------------
 // WALLET ASSETS — GET /v2/wallet-assets?address={pubkey}, backs
 // slideshow.html and wallet.html. Server-side Helius lookup so visitors
@@ -518,7 +533,7 @@ async function handleCollectionRarities(collectionKey, env, corsHeaders) {
   if (cached) {
     return new Response(cached, {
       status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json", "X-Zurcovers-Rarity-Cache": "HIT" },
+      headers: { ...corsHeaders, "Content-Type": "application/json", "X-Zurcovers-Cache-Status": "HIT" },
     });
   }
 
@@ -528,7 +543,7 @@ async function handleCollectionRarities(collectionKey, env, corsHeaders) {
     await env.ZURCOVERS_CACHE.put(cacheKey, body, { expirationTtl: COLLECTION_RARITY_CACHE_TTL_SECONDS });
     return new Response(body, {
       status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json", "X-Zurcovers-Rarity-Cache": "MISS" },
+      headers: { ...corsHeaders, "Content-Type": "application/json", "X-Zurcovers-Cache-Status": "MISS" },
     });
   } catch (err) {
     return new Response(JSON.stringify({ error: "collection_rarities_failed", message: err.message }), {
@@ -551,7 +566,7 @@ async function handleFloorPriceStats(symbol, env, corsHeaders) {
   if (cached) {
     return new Response(cached, {
       status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json", "X-Zurcovers-Floor-Cache": "HIT" },
+      headers: { ...corsHeaders, "Content-Type": "application/json", "X-Zurcovers-Cache-Status": "HIT" },
     });
   }
 
@@ -569,10 +584,62 @@ async function handleFloorPriceStats(symbol, env, corsHeaders) {
     }
     return new Response(body, {
       status: meRes.status,
-      headers: { ...corsHeaders, "Content-Type": "application/json", "X-Zurcovers-Floor-Cache": "MISS" },
+      headers: { ...corsHeaders, "Content-Type": "application/json", "X-Zurcovers-Cache-Status": "MISS" },
     });
   } catch (err) {
     return new Response(JSON.stringify({ error: "floor_price_failed", message: err.message }), {
+      status: 502,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+}
+
+async function handleCollectionSymbol(collectionKey, mint, env, corsHeaders) {
+  if (!SAFE_KEY_RE.test(collectionKey) || !mint || !SAFE_KEY_RE.test(mint)) {
+    return new Response(JSON.stringify({ error: "invalid_params" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const cacheKey = `collectionsymbol:${collectionKey}`;
+  const cached = await env.ZURCOVERS_CACHE.get(cacheKey);
+  if (cached) {
+    return new Response(cached, {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json", "X-Zurcovers-Cache-Status": "HIT" },
+    });
+  }
+
+  try {
+    // mint is only ever used on a cache miss, to make the one live lookup
+    // this collection will ever need (from whichever wallet happens to
+    // reveal it first) — same field parsing as the frontend's old
+    // resolveMESymbol, just cached under the collection instead of the mint.
+    const meRes = await fetch(`${ME_ORIGIN}/v2/tokens/${mint}`, { headers: { Accept: "application/json" } });
+    let symbol = null;
+    if (meRes.ok) {
+      const data = await meRes.json();
+      const collectionField = data && data.collection;
+      symbol =
+        typeof collectionField === "string"
+          ? collectionField
+          : (collectionField && (collectionField.symbol || collectionField.name)) || data.collectionSymbol || null;
+    }
+    const body = JSON.stringify({ symbol });
+    // Only cache a resolved symbol — an unresolved one might just mean
+    // this particular mint hasn't been indexed by Magic Eden yet, not
+    // that the collection has no symbol at all, so it's not safe to
+    // remember as a permanent answer for 30 days.
+    if (symbol) {
+      await env.ZURCOVERS_CACHE.put(cacheKey, body, { expirationTtl: COLLECTION_SYMBOL_CACHE_TTL_SECONDS });
+    }
+    return new Response(body, {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json", "X-Zurcovers-Cache-Status": "MISS" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: "symbol_resolution_failed", message: err.message }), {
       status: 502,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -612,6 +679,11 @@ export default {
     const floorStatsMatch = url.pathname.match(/^\/v2\/collections\/([^/]+)\/stats$/);
     if (floorStatsMatch && request.method === "GET") {
       return handleFloorPriceStats(floorStatsMatch[1], env, corsHeaders);
+    }
+
+    const collectionSymbolMatch = url.pathname.match(/^\/v2\/onchain-collections\/([^/]+)\/symbol$/);
+    if (collectionSymbolMatch && request.method === "GET") {
+      return handleCollectionSymbol(collectionSymbolMatch[1], url.searchParams.get("mint") || "", env, corsHeaders);
     }
 
     // Outbound-to-Magic-Eden click tracking — same shape as ZurVault's
