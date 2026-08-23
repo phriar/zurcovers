@@ -96,11 +96,12 @@
     color:rgba(243,239,230,0.89); font-family:'DM Mono',monospace;
   }
 
-  /* "Almost There" — collections missing 1+ currently-listed rarity tier,
-     closest-to-complete first. Built entirely from data the eager
+  /* "Almost There" — collections missing 1+ rarity tier that actually
+     exists in that collection, closest-to-complete first. Built entirely
+     from data the eager
      per-collection loading loop already fetches (no extra network calls),
      re-rendered as each collection's rarity check resolves. Capped to the
-     closest 8 so this stays a quick scan, not a second shelf — the point
+     closest 5 (NEAR_COMPLETE_DISPLAY_CAP) so this stays a quick scan, not a second shelf — the point
      is "here's what to look at next," not a full inventory (that's what
      opening each collection's own panel is for). */
   .near-complete{
@@ -134,7 +135,7 @@
 
   /* Collection panel — opened when a shelf card is tapped, showing every
      comic (and rarity variant) owned inside that one collection, plus
-     which currently-listed rarity tiers this wallet doesn't have yet.
+     which rarity tiers actually exist in that collection but this wallet doesn't have yet.
      Deliberately a lightweight in-page overlay, not a new route — the
      Long Box stays a single continuous page. */
   .copies-modal{
@@ -418,7 +419,7 @@ const sortDefaultBtn = document.getElementById('sort-default');
 const sortPriceBtn = document.getElementById('sort-price');
 
 // allGroups is the single source of truth for everything on this page —
-// keyed by collectionKey. Each value accumulates floor/symbol/rarityFloors
+// keyed by collectionKey. Each value accumulates floor/symbol/knownRarities
 // as they're resolved, so re-rendering (sort clicks, price ticks, modal
 // reopens) never needs to re-fetch anything already known.
 let allGroups = {};
@@ -428,14 +429,23 @@ let openModalKey = null; // guards a slow rarity-floors fetch from clobbering a 
 const RARITY_ALIASES = { common:'common', core:'common', base:'common', standard:'common', uncommon:'uncommon', rare:'rare', epic:'epic', legendary:'legendary' };
 const RARITY_LABELS = { common:'Common', uncommon:'Uncommon', rare:'Rare', epic:'Epic', legendary:'Legendary' };
 const RARITY_ORDER = ['Common', 'Uncommon', 'Rare', 'Epic', 'Legendary'];
+// Split out from normalizeRarity so the raw rarity strings the Worker's
+// /onchain-collections/{key}/rarities endpoint returns (plain trait
+// values, not full attribute objects) can go through the exact same
+// normalization as an owned item's own Rarity trait — one place owns
+// "CORE"/"(40.400)"-style raw values -> Common/Uncommon/.../Legendary,
+// so the two can't drift out of sync.
+function normalizeRarityValue(raw){
+  const value = String(raw || '').trim();
+  const match = /^(.*?)\s*\(([\d.]+)\)\s*$/.exec(value);
+  const cleaned = (match ? match[1] : value).trim().toLowerCase();
+  const key = RARITY_ALIASES[cleaned];
+  return key ? RARITY_LABELS[key] : null;
+}
 function normalizeRarity(attributes){
   const attr = (attributes || []).find(a => /^rarity$/i.test(a?.trait_type || ''));
   if(!attr) return null;
-  const raw = String(attr.value || '').trim();
-  const match = /^(.*?)\s*\(([\d.]+)\)\s*$/.exec(raw);
-  const cleaned = (match ? match[1] : raw).trim().toLowerCase();
-  const key = RARITY_ALIASES[cleaned];
-  return key ? RARITY_LABELS[key] : null;
+  return normalizeRarityValue(attr.value);
 }
 
 
@@ -503,35 +513,34 @@ async function fetchFloorPrice(symbol){
   }
 }
 
-// Current lowest listed price per rarity tier, from this collection's
-// active listings (first 100). Also doubles as "which rarity tiers exist
-// at all right now" for the missing-rarities check below. Goes through
-// the Worker's own /rarity-summary endpoint rather than proxying straight
-// to Magic Eden's listings endpoint — that endpoint caches the response
-// in KV for 30 minutes, globally shared across every visitor checking the
-// same collection, since this answer isn't wallet-specific. Same response
-// shape as Magic Eden's own listings endpoint, so the parsing below is
-// unchanged — only the URL moved.
-// Returns null on a failed/blocked request (network error, non-OK status
-// — including a 429 from Magic Eden's real per-minute rate limit) so the
-// caller can tell "couldn't check" apart from "checked, found nothing" —
-// collapsing those together previously meant a rate-limited fetch got
-// permanently cached as "this collection has no rarity tiers," silently
-// hiding the missing-rarities line for whatever a visitor happened to
-// click after the limit kicked in.
-async function fetchListingsRarityFloors(symbol){
+// Which rarity tiers actually exist in this collection, from Helius's
+// full on-chain record of every asset minted into it (via the Worker's
+// /onchain-collections/{collectionKey}/rarities, KV-cached for 30 days
+// since a minted collection's rarity distribution doesn't change).
+// Deliberately NOT based on Magic Eden's active listings anymore — that
+// approach treated "nobody is currently selling one" as equivalent to
+// "doesn't exist," which produced real false "Complete Set" positives:
+// scarce tiers like Legendary (sometimes as few as 5 ever minted) often
+// have zero active listings at any given moment even though they're very
+// much owned by someone. This takes collectionKey (the on-chain grouping
+// value, same field used as allGroups' own keys), not a Magic Eden
+// symbol — no ME symbol resolution needed for this check at all anymore.
+// Returns null on a failed/blocked request so the caller can tell
+// "couldn't check" apart from "checked, found nothing" — collapsing
+// those together previously meant a failed fetch got permanently cached
+// as "this collection has no rarity tiers."
+async function fetchCollectionRarities(collectionKey){
   try{
-    const res = await fetch(`${ME_BASE}/collections/${symbol}/rarity-summary`);
+    const res = await fetch(`${ME_BASE}/onchain-collections/${collectionKey}/rarities`);
     if(!res.ok) return null;
     const data = await res.json();
-    const map = {};
-    for(const item of (Array.isArray(data) ? data : [])){
-      const price = item?.price;
-      if(typeof price !== 'number') continue;
-      const rarity = normalizeRarity(item?.token?.attributes) || '__none__';
-      if(!(rarity in map) || price < map[rarity]) map[rarity] = price;
+    const raw = Array.isArray(data?.rarities) ? data.rarities : [];
+    const normalized = new Set();
+    for(const r of raw){
+      const label = normalizeRarityValue(r);
+      if(label) normalized.add(label);
     }
-    return map;
+    return normalized;
   }catch(e){
     return null;
   }
@@ -573,7 +582,7 @@ async function loadWallet(address){
   allGroups = {};
   for(const a of assets){
     const key = a.collectionKey || a.collectionName || a.mint;
-    if(!allGroups[key]) allGroups[key] = { name: a.collectionName || 'Unknown Collection', items: [], sampleMint: a.mint, symbol: undefined, floor: undefined, rarityFloors: undefined };
+    if(!allGroups[key]) allGroups[key] = { name: a.collectionName || 'Unknown Collection', items: [], sampleMint: a.mint, symbol: undefined, floor: undefined, knownRarities: undefined };
     allGroups[key].items.push(a);
   }
   const groupKeys = Object.keys(allGroups);
@@ -587,12 +596,14 @@ async function loadWallet(address){
   // Rarity-summary is folded into this same eager, paced loop (not left
   // lazy-only) so a "complete set" badge can show on the shelf itself
   // without opening every collection — only practical because that lookup
-  // is now KV-cached server-side (see fetchListingsRarityFloors), so it
-  // gets cheap to check for every collection over time instead of costing
-  // a fresh Magic Eden call each time. ensureRarityFloors() below still
-  // exists for the popup's lazy path (a collection this loop hasn't
-  // reached yet, or a retry after a failed check) — it's a no-op once
-  // g.rarityFloors is already set here.
+  // is now KV-cached server-side for 30 days (see fetchCollectionRarities),
+  // so it's cheap to check for every collection instead of costing a fresh
+  // Helius call each time. ensureKnownRarities() below still exists for
+  // the popup's lazy path (a collection this loop hasn't reached yet, or a
+  // retry after a failed check) — it's a no-op once g.knownRarities is
+  // already set here. This check no longer depends on a resolved Magic
+  // Eden symbol at all — it only needs the on-chain collectionKey (this
+  // loop's own `key`), which every collection has unconditionally.
   let done = 0;
   for(const key of groupKeys){
     const symbol = await resolveMESymbol(allGroups[key].sampleMint);
@@ -600,23 +611,19 @@ async function loadWallet(address){
     allGroups[key].floor = symbol ? await fetchFloorPrice(symbol) : null;
     // Guarded on still-undefined in case a visitor already opened this
     // exact collection's panel before this loop reached it — the panel's
-    // own lazy fetch (ensureRarityFloors) would have already set this.
+    // own lazy fetch (ensureKnownRarities) would have already set this.
     // Also skipped entirely for a collection where only one distinct
     // comic is owned: completing (or being one away from completing) a
     // set requires owning multiple different rarities of the same
     // collection, which by definition can't be true here — eagerly
     // checking it would just be a wasted call for a collection that will
     // essentially always come back "missing several." Left undefined
-    // rather than {} so it stays checkable on demand if this specific
-    // collection's panel ever gets opened (ensureRarityFloors handles
+    // rather than a set so it stays checkable on demand if this specific
+    // collection's panel ever gets opened (ensureKnownRarities handles
     // that), it just isn't part of the eager pass or the Almost There list.
-    if(allGroups[key].rarityFloors === undefined && groupByName(allGroups[key].items).size > 1){
-      if(symbol){
-        const rarityResult = await fetchListingsRarityFloors(symbol);
-        if(rarityResult !== null) allGroups[key].rarityFloors = rarityResult;
-      } else {
-        allGroups[key].rarityFloors = {};
-      }
+    if(allGroups[key].knownRarities === undefined && groupByName(allGroups[key].items).size > 1){
+      const rarityResult = await fetchCollectionRarities(key);
+      if(rarityResult !== null) allGroups[key].knownRarities = rarityResult;
     }
     done++;
     setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Checking ${done}/${groupKeys.length}…`);
@@ -691,7 +698,7 @@ function collectionCardHtml(key){
   const totalCount = g.items.length;
   const tilt = hashTilt(key) + 'deg';
   // computeMissingRarities() only returns a definite answer once
-  // g.rarityFloors has resolved (undefined/null both mean "not known yet
+  // g.knownRarities has resolved (undefined/null both mean "not known yet
   // or not checkable"), so a freshly-rendered card before that starts
   // with the ribbon hidden — updateCompleteBadgeForCard() flips it on in
   // place once the eager loop reaches this collection, same pattern as
@@ -743,7 +750,7 @@ function updatePriceForCard(key, floor){
 // ribbon and the card's glow without touching the cover <img>. Reads
 // computeMissingRarities() (defined below, used the same way inside the
 // collection panel) so "complete" means exactly the same thing in both
-// places: every currently-listed rarity tier for this collection is
+// places: every rarity tier that actually exists in this collection is
 // represented somewhere in what's owned.
 function updateCompleteBadgeForCard(key){
   const card = shelfEl.querySelector(`[data-card-id="${CSS.escape(key)}"]`);
@@ -848,29 +855,33 @@ function updateCollectorStats(){
 }
 
 // Missing rarities — compares rarities OWNED in this collection against
-// rarities currently listed for sale on Magic Eden for it. Deliberately
-// NOT based on issue numbers: an earlier version tried to guess a
-// "complete run" from gaps between the lowest and highest issue number
-// owned, which fell apart for anthology/reprint series (e.g. "Showcase
-// (1956-1978)") where owned issues are a handful of scattered picks from
-// a decades-long numbering scheme, not a small contiguous new print run —
-// it would report enormous, meaningless "missing" counts. Rarity tiers
-// are a small fixed set per collection, so this can't blow up the same
-// way. Still an approximation: "currently listed" isn't the same as
-// "exists" — a tier with zero active listings right now won't be flagged
-// even if it was minted, and a freshly-listed tier won't show up until
-// this fetch runs again.
+// rarities that actually EXIST in it, per Helius's on-chain record of
+// every minted asset (g.knownRarities, see fetchCollectionRarities).
+// Two earlier approaches got replaced here, in order:
+// 1. Guessing a "complete run" from gaps between the lowest/highest
+//    issue number owned — fell apart for anthology/reprint series (e.g.
+//    "Showcase (1956-1978)") where owned issues are scattered picks from
+//    a decades-long numbering scheme, reporting enormous meaningless
+//    "missing" counts.
+// 2. Rarity tiers instead of issues (a small fixed set per collection,
+//    so it couldn't blow up the same way) — but sourced from Magic
+//    Eden's currently-active listings, which confused "nobody's selling
+//    one right now" with "doesn't exist." Confirmed live: scarce tiers
+//    (Legendary sometimes has as few as 5 ever minted) frequently have
+//    zero active listings at any moment, producing false "Complete Set"
+//    positives for wallets that only owned the commonly-listed tiers.
+// This version's "exists" check is ground truth (on-chain mint record),
+// not a moving marketplace snapshot, so it doesn't have that failure mode.
 function computeMissingRarities(key){
   const g = allGroups[key];
-  if(!g || g.rarityFloors === undefined) return undefined; // not fetched yet
-  const availableRarities = new Set(Object.keys(g.rarityFloors).filter(r => r !== '__none__'));
-  if(availableRarities.size === 0) return null; // no rarity system here (or nothing currently listed) — nothing meaningful to report
+  if(!g || g.knownRarities === undefined) return undefined; // not fetched yet
+  if(g.knownRarities.size === 0) return null; // no rarity system here (or couldn't determine tiers) — nothing meaningful to report
   const ownedRarities = new Set();
   for(const item of g.items){
     const r = normalizeRarity(item.attributes);
     if(r) ownedRarities.add(r);
   }
-  return RARITY_ORDER.filter(r => availableRarities.has(r) && !ownedRarities.has(r));
+  return RARITY_ORDER.filter(r => g.knownRarities.has(r) && !ownedRarities.has(r));
 }
 
 // Fire-and-forget, memoized on the underlying item object (which persists
@@ -925,8 +936,8 @@ function renderCollectionModal(key){
     missingEl.style.display = 'block';
     missingEl.classList.remove('has-missing', 'is-complete');
     missingEl.innerHTML = g.rarityFetchFailed
-      ? `Couldn't check current rarities right now — Magic Eden may be rate-limiting lookups. <a href="#" data-retry="${esc(key)}">Retry &#8635;</a>`
-      : 'Checking which rarities are currently available…';
+      ? `Couldn't check rarities for this collection right now. <a href="#" data-retry="${esc(key)}">Retry &#8635;</a>`
+      : 'Checking which rarities exist in this collection…';
   } else if(missing === null){
     missingEl.style.display = 'none';
     missingEl.classList.remove('has-missing', 'is-complete');
@@ -934,7 +945,7 @@ function renderCollectionModal(key){
     missingEl.style.display = 'block';
     missingEl.classList.remove('has-missing');
     missingEl.classList.add('is-complete');
-    missingEl.textContent = '★ Complete set — you own every currently-listed rarity tier.';
+    missingEl.textContent = '★ Complete set — you own every rarity tier that exists in this collection.';
   } else {
     missingEl.style.display = 'block';
     missingEl.classList.remove('is-complete');
@@ -952,7 +963,7 @@ function renderCollectionModal(key){
     // back to its unfiltered "All sub-collections" view, same as if no
     // param were passed at all).
     const zvUrl = `https://zurvault.com/?symbol=${encodeURIComponent(g.symbol)}`;
-    missingEl.innerHTML = `Missing rarities (currently listed, not owned yet): <b>${missing.map(esc).join(', ')}</b><br>` +
+    missingEl.innerHTML = `Missing rarities (exist in this collection, not owned yet): <b>${missing.map(esc).join(', ')}</b><br>` +
       `<a class="missing-hunt-link" href="${esc(zvUrl)}" target="_blank" rel="noopener">See what's for sale on ZurVault &#8599;</a>`;
   }
 
@@ -960,15 +971,18 @@ function renderCollectionModal(key){
 }
 
 // Serializes a class of on-demand fetches LOOKUP_PACE_MS apart, regardless
-// of how quickly a visitor triggers several of them in a row — without
-// this, opening panel after panel fired each fetch immediately, and
-// enough of them close together tripped Magic Eden's real per-minute rate
-// limit. Two independent queues (not one shared one) so the rarity check —
-// the thing a visitor is actually watching a "Checking…" message for —
-// never has to wait behind a pile of per-comic Candy-link lookups queued
-// just ahead of it; a collection with several distinct comics was
-// otherwise visibly slow to report what's missing, stuck behind every one
-// of that collection's own Candy lookups first.
+// of how quickly a visitor triggers several of them in a row. Originally
+// added because opening panel after panel fired each Candy/rarity lookup
+// immediately, and enough of them close together tripped Magic Eden's
+// real per-minute rate limit — the rarity check has since moved to Helius
+// (see fetchCollectionRarities), so it's no longer that specific risk for
+// this queue, but the pacing is still worth keeping as general hygiene
+// against our own Worker/Helius. Two independent queues (not one shared
+// one) so the rarity check — the thing a visitor is actually watching a
+// "Checking…" message for — never has to wait behind a pile of per-comic
+// Candy-link lookups queued just ahead of it; a collection with several
+// distinct comics was otherwise visibly slow to report what's missing,
+// stuck behind every one of that collection's own Candy lookups first.
 function makeQueue(){
   let chain = Promise.resolve();
   return function(fn){
@@ -981,19 +995,16 @@ const queueRarityCheck = makeQueue();
 const queueCandyLookup = makeQueue();
 
 // Shared by both the initial open and the retry link — only actually
-// fetches once per collection (skips straight through once g.rarityFloors
-// is populated), and leaves it undefined (rather than caching a bad
-// result) on failure so the next open or retry tries again.
-async function ensureRarityFloors(key){
+// fetches once per collection (skips straight through once
+// g.knownRarities is populated), and leaves it undefined (rather than
+// caching a bad result) on failure so the next open or retry tries again.
+// Needs only the collectionKey — no Magic Eden symbol involved.
+async function ensureKnownRarities(key){
   const g = allGroups[key];
-  if(!g || g.rarityFloors !== undefined) return;
-  if(!g.symbol){
-    g.rarityFloors = {}; // no Magic Eden symbol at all for this collection — nothing to check, and retrying won't change that
-    return;
-  }
-  const result = await queueRarityCheck(() => fetchListingsRarityFloors(g.symbol));
+  if(!g || g.knownRarities !== undefined) return;
+  const result = await queueRarityCheck(() => fetchCollectionRarities(key));
   if(result !== null){
-    g.rarityFloors = result;
+    g.knownRarities = result;
     g.rarityFetchFailed = false;
   } else {
     g.rarityFetchFailed = true;
@@ -1007,7 +1018,7 @@ async function openCollectionModal(key){
   renderCollectionModal(key);
   document.getElementById('copies-modal').style.display = 'flex';
   document.body.style.overflow = 'hidden';
-  await ensureRarityFloors(key);
+  await ensureKnownRarities(key);
   if(openModalKey === key) renderCollectionModal(key);
 }
 async function retryRarityCheck(key){
@@ -1015,7 +1026,7 @@ async function retryRarityCheck(key){
   if(!g) return;
   g.rarityFetchFailed = false;
   renderCollectionModal(key); // back to "Checking…" immediately, not stuck on the failure message
-  await ensureRarityFloors(key);
+  await ensureKnownRarities(key);
   if(openModalKey === key) renderCollectionModal(key);
 }
 function closeCopiesModal(){

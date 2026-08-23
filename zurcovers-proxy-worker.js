@@ -77,17 +77,27 @@ const ALLOWED_ORIGINS = [
 const EDGE_CACHE_SECONDS = 60;
 const CLICK_TTL_SECONDS = 60 * 60 * 24 * 90; // 90 days, same retention as ZurVault's click log
 
-// RARITY SUMMARY — GET /v2/collections/{symbol}/rarity-summary, backs the
-// Long Box's per-collection "missing rarities" check. Deliberately cached
-// in KV (globally replicated) rather than left to the generic proxy's
-// 60s-per-datacenter edge cache below: "which rarities have any active
-// listing right now" is the same answer for every visitor checking a
-// given collection, not wallet-specific, so it's worth caching much
-// longer and sharing across everyone rather than re-fetching per visitor.
-// A stale-by-up-to-30-minutes answer to "does this tier currently have
-// any listing" is an acceptable tradeoff for going from a live Magic
-// Eden call every time to an instant cache hit after the first.
-const RARITY_SUMMARY_CACHE_TTL_SECONDS = 60 * 30;
+// COLLECTION RARITIES — GET /v2/onchain-collections/{collectionKey}/rarities,
+// backs the Long Box's per-collection "missing rarities" / "Complete Set"
+// check. Originally built on Magic Eden's /listings endpoint ("which
+// rarities have any active listing right now"), but that's a bad proxy
+// for "which rarities exist" — a scarce tier (Legendary might only ever
+// have 5 copies minted) frequently has zero active listings at any given
+// moment, indistinguishable from not existing at all, which produced
+// real false "Complete Set" positives (confirmed live: a wallet owning
+// only the commonly-listed tiers of a collection got marked complete).
+// This queries Helius directly for every asset ever minted into the
+// on-chain collection (getAssetsByGroup, same RPC used by
+// fetchWalletAssets above) and reads the Rarity trait off each one —
+// ground truth, independent of what anyone happens to be selling right
+// now. collectionKey is the on-chain grouping value (Helius's
+// grouping[].group_value, same field parseHeliusAsset already exposes as
+// collectionKey) — NOT a Magic Eden symbol, so this needs no Magic Eden
+// call or resolved symbol at all. Cached far longer than the old
+// listings-based version (30 days, matching per-mint metadata caching)
+// since a minted collection's rarity distribution doesn't change.
+const COLLECTION_RARITY_CACHE_TTL_SECONDS = 60 * 60 * 24 * 30;
+const COLLECTION_ASSET_MAX_PAGES = 5; // getAssetsByGroup, 1000/page — generous for a single comic drop's total supply
 
 // ---------------------------------------------------------------------
 // WALLET ASSETS — GET /v2/wallet-assets?address={pubkey}, backs
@@ -439,20 +449,57 @@ async function handleWalletAssets(request, env, ctx, corsHeaders) {
   }
 }
 
-// Symbol comes straight from the URL path — restricted to a conservative
-// charset before it ever touches a KV key or an outbound URL, same
-// defensive habit as click-log's sanitize() above.
-const SAFE_SYMBOL_RE = /^[a-zA-Z0-9_-]{1,128}$/;
+// collectionKey comes straight from the URL path — restricted to a
+// conservative charset before it ever touches a KV key or an RPC call,
+// same defensive habit as click-log's sanitize() above. Base58 addresses
+// (the actual expected shape) are a subset of this charset.
+const SAFE_KEY_RE = /^[a-zA-Z0-9_-]{1,128}$/;
 
-async function handleRaritySummary(symbol, env, corsHeaders) {
-  if (!SAFE_SYMBOL_RE.test(symbol)) {
-    return new Response(JSON.stringify({ error: "invalid_symbol" }), {
+// Pages through every asset Helius has indexed under this on-chain
+// collection grouping and collects the distinct Rarity trait values found
+// — see the comment above COLLECTION_RARITY_CACHE_TTL_SECONDS for why
+// this replaced a Magic-Eden-listings-based approach. Returns raw trait
+// values (e.g. "RARE", "CORE") rather than normalized labels — the
+// frontend already owns that normalization (normalizeRarity/
+// RARITY_ALIASES) and this keeps that logic in one place rather than
+// duplicating it server-side where it could drift out of sync.
+async function fetchCollectionRarities(collectionKey, env) {
+  const rpcUrl = `${HELIUS_ORIGIN}?api-key=${env.HELIUS_API_KEY}`;
+  const rarities = new Set();
+  for (let page = 1; page <= COLLECTION_ASSET_MAX_PAGES; page++) {
+    const res = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "zurcovers-collection-rarities",
+        method: "getAssetsByGroup",
+        params: { groupKey: "collection", groupValue: collectionKey, page, limit: 1000 },
+      }),
+    });
+    if (!res.ok) throw new Error(`Helius HTTP ${res.status}`);
+    const json = await res.json();
+    if (json.error) throw new Error(json.error.message || "Helius error");
+    const items = (json.result && json.result.items) || [];
+    for (const item of items) {
+      const attrs = (item.content && item.content.metadata && item.content.metadata.attributes) || [];
+      const rarityAttr = attrs.find((a) => /^rarity$/i.test(a?.trait_type || ""));
+      if (rarityAttr && rarityAttr.value) rarities.add(String(rarityAttr.value).trim());
+    }
+    if (items.length < 1000) break;
+  }
+  return [...rarities];
+}
+
+async function handleCollectionRarities(collectionKey, env, corsHeaders) {
+  if (!SAFE_KEY_RE.test(collectionKey)) {
+    return new Response(JSON.stringify({ error: "invalid_collection_key" }), {
       status: 400,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
-  const cacheKey = `raritysummary:${symbol}`;
+  const cacheKey = `collectionrarities:${collectionKey}`;
   const cached = await env.ZURCOVERS_CACHE.get(cacheKey);
   if (cached) {
     return new Response(cached, {
@@ -462,23 +509,15 @@ async function handleRaritySummary(symbol, env, corsHeaders) {
   }
 
   try {
-    const meRes = await fetch(`${ME_ORIGIN}/v2/collections/${symbol}/listings?offset=0&limit=100`, {
-      headers: { Accept: "application/json" },
-    });
-    const body = await meRes.text();
-    // Same shape Magic Eden's own listings endpoint returns — this is a
-    // caching wrapper, not a transform, so the frontend's existing
-    // fetchListingsRarityFloors() parsing keeps working unchanged; only
-    // the URL it calls changes.
-    if (meRes.ok) {
-      await env.ZURCOVERS_CACHE.put(cacheKey, body, { expirationTtl: RARITY_SUMMARY_CACHE_TTL_SECONDS });
-    }
+    const rarities = await fetchCollectionRarities(collectionKey, env);
+    const body = JSON.stringify({ rarities });
+    await env.ZURCOVERS_CACHE.put(cacheKey, body, { expirationTtl: COLLECTION_RARITY_CACHE_TTL_SECONDS });
     return new Response(body, {
-      status: meRes.status,
+      status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json", "X-Zurcovers-Rarity-Cache": "MISS" },
     });
   } catch (err) {
-    return new Response(JSON.stringify({ error: "rarity_summary_failed", message: err.message }), {
+    return new Response(JSON.stringify({ error: "collection_rarities_failed", message: err.message }), {
       status: 502,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -506,9 +545,9 @@ export default {
       return handleWalletAssets(request, env, ctx, corsHeaders);
     }
 
-    const raritySummaryMatch = url.pathname.match(/^\/v2\/collections\/([^/]+)\/rarity-summary$/);
-    if (raritySummaryMatch && request.method === "GET") {
-      return handleRaritySummary(raritySummaryMatch[1], env, corsHeaders);
+    const collectionRaritiesMatch = url.pathname.match(/^\/v2\/onchain-collections\/([^/]+)\/rarities$/);
+    if (collectionRaritiesMatch && request.method === "GET") {
+      return handleCollectionRarities(collectionRaritiesMatch[1], env, corsHeaders);
     }
 
     // Outbound-to-Magic-Eden click tracking — same shape as ZurVault's
