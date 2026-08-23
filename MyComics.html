@@ -294,10 +294,6 @@
     font-family:'DM Mono',monospace; font-size:.85rem; letter-spacing:.04em;
     color:rgba(45,230,208,0.8); margin-top:3px;
   }
-  .comic .caption .me-tag{
-    font-family:'DM Mono',monospace; font-size:.85rem; letter-spacing:.05em; text-transform:uppercase;
-    color:rgba(232,178,77,0.75); margin-top:3px;
-  }
 
   .empty{ position:relative; z-index:1; padding:60px 32px; text-align:center; color:rgba(243,239,230,0.89); font-family:'Cormorant Garamond',serif; font-size:1.2rem; font-weight:300; line-height:1.6; }
 
@@ -720,7 +716,6 @@ function collectionCardHtml(key){
       <div class="caption">
         <div class="name">${esc(g.name)}</div>
         <div class="sub">${distinctCount} comic${distinctCount !== 1 ? 's' : ''} &middot; ${totalCount} cop${totalCount !== 1 ? 'ies' : 'y'} owned</div>
-        <div class="me-tag">Tap to browse &#8594;</div>
       </div>
     </div>
   `;
