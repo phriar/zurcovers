@@ -118,12 +118,22 @@
   .quest-requirement{ font-family:'Cormorant Garamond',serif; font-size:1.05rem; line-height:1.5; color:rgba(243,239,230,0.95); }
   .req-breakdown{ display:flex; flex-direction:column; gap:10px; margin-top:2px; }
   .req-group-head{ font-family:'DM Mono',monospace; font-size:.76rem; letter-spacing:.08em; text-transform:uppercase; color:rgba(243,239,230,0.55); margin-bottom:3px; }
-  .req-row{ display:flex; align-items:baseline; gap:8px; font-family:'DM Mono',monospace; font-size:.82rem; padding:2px 0; color:rgba(243,239,230,0.5); flex-wrap:wrap; }
+  .req-row{ display:flex; align-items:flex-start; gap:10px; font-family:'DM Mono',monospace; font-size:.82rem; padding:4px 0; color:rgba(243,239,230,0.5); }
+  .req-cover{
+    width:38px; flex-shrink:0; aspect-ratio:2/3; object-fit:cover; border-radius:2px; display:block;
+    box-shadow:0 2px 6px rgba(0,0,0,0.4); background:rgba(255,255,255,0.05);
+  }
+  .req-cover-empty{
+    display:flex; align-items:center; justify-content:center; text-align:center; padding:2px;
+    font-size:.5rem; letter-spacing:.02em; text-transform:uppercase; color:rgba(243,239,230,0.5);
+  }
+  .req-info{ flex:1; min-width:0; }
+  .req-label-row{ display:flex; align-items:baseline; gap:6px; flex-wrap:wrap; }
   .req-check{ width:14px; flex-shrink:0; color:rgba(243,239,230,0.3); font-weight:bold; }
   .req-row.matched{ color:rgba(243,239,230,0.9); }
   .req-row.matched .req-check{ color:var(--gold); }
   .req-label{ flex-shrink:0; }
-  .req-match{ font-style:italic; color:rgba(243,239,230,0.4); }
+  .req-match{ font-style:italic; color:rgba(243,239,230,0.4); margin-top:2px; }
   .req-row.matched .req-match{ color:rgba(45,230,208,0.85); font-style:normal; }
   .req-hunt-link{ color:var(--gold); text-decoration:none; font-style:normal; }
   .req-hunt-link:hover{ color:var(--paper); text-decoration:underline; }
@@ -219,7 +229,11 @@ function normalizeRarity(attributes){
 // (confirmed from Week 1: "own 2 of these 3 classics" AND "own 1 of
 // these 2 modern issues" are two separate groups with different mins,
 // not one flat any/all list). A quest is complete only when every group
-// meets its own min.
+// meets its own min. Each item can also carry an optional `symbol`
+// (Magic Eden collection symbol, for the "find one on ZurVault" link on
+// a miss — see requirementGroupHtml) and `image` (a reference cover,
+// sourced once from Candy Digital/dc3.wiki, shown when the wallet
+// doesn't own this item and there's no owned copy to show instead).
 //
 // opensAt/snapshotAt are ISO datetimes (include your timezone offset,
 // e.g. "-04:00" for ET — Candy Digital's own posts don't state a
@@ -254,19 +268,20 @@ const QUESTS = [
       description: "Own 2 of: Showcase (1956-1978) #22, Green Lantern (1960-1986) #59, or All-American Comics (1939-1948) #16 (any rarity) — plus 1 of: Green Lantern (2023-) #1 or Blackest Night (2009-2010) #1 (any rarity). Must hold all at the quest snapshot.",
       groups: [
         { min: 2, items: [
-          { label: "Showcase (1956-1978) #22", namePattern: /showcase\s*\(1956-1978\)\s*#22\b/i, symbol: "showcase_19561978_22" },
-          { label: "Green Lantern (1960-1986) #59", namePattern: /green lantern\s*\(1960-1986\)\s*#59\b/i, symbol: "green_lantern_19601986_59" },
+          { label: "Showcase (1956-1978) #22", namePattern: /showcase\s*\(1956-1978\)\s*#22\b/i, symbol: "showcase_19561978_22", image: "https://assets.candy.io/DC_IMAGE/b325b118-9533-4908-b9d4-94fbaf422353/T2262400015401_sf_NFT_marketplace.jpg" },
+          { label: "Green Lantern (1960-1986) #59", namePattern: /green lantern\s*\(1960-1986\)\s*#59\b/i, symbol: "green_lantern_19601986_59", image: "https://assets.candy.io/IMAGE/01bfcf68-d71b-4913-baa3-ae62585d7a5e/T24326_sf_pack_marketplace.png" },
           // No confirmed Magic Eden symbol for this one as of 2026-08-23 — it
           // turned up under Candy's older "SweetFutures" program rather than
           // the DC3/Magic Eden line, so it may not have a Magic Eden listing
           // at all. Left without a symbol rather than guessing one; the
           // ZurVault link below degrades to the unfiltered catalog for any
-          // item missing this field.
-          { label: "All-American Comics (1939-1948) #16", namePattern: /all-american comics\s*\(1939-1948\)\s*#16\b/i },
+          // item missing this field. image is still available independently
+          // (sourced from dc3.wiki's own collection page, not Magic Eden).
+          { label: "All-American Comics (1939-1948) #16", namePattern: /all-american comics\s*\(1939-1948\)\s*#16\b/i, image: "https://assets.candy.io/DC_IMAGE/c8e7b85b-de3c-4e84-845f-080d071dd3f3/T2329100015401_sf_marketplace.jpg" },
         ] },
         { min: 1, items: [
-          { label: "Green Lantern (2023-) #1", namePattern: /green lantern\s*\(2023-?\)\s*#1(?!\d)/i, symbol: "green_lantern_2023_1" },
-          { label: "Blackest Night (2009-2010) #1", namePattern: /blackest night\s*\(2009-2010\)\s*#1(?!\d)/i, symbol: "blackest_night_20092010_1" },
+          { label: "Green Lantern (2023-) #1", namePattern: /green lantern\s*\(2023-?\)\s*#1(?!\d)/i, symbol: "green_lantern_2023_1", image: "https://assets.candy.io/DC_IMAGE/1e1715b2-0462-4485-9732-06403983994c/T2280700015001_sf_marketplace.jpg" },
+          { label: "Blackest Night (2009-2010) #1", namePattern: /blackest night\s*\(2009-2010\)\s*#1(?!\d)/i, symbol: "blackest_night_20092010_1", image: "https://assets.candy.io/IMAGE/c0facf5e-51cd-475c-aa74-a03ddea5820d/T24054_pack_thumbnail.png" },
         ] },
       ]
     }
@@ -336,11 +351,23 @@ function requirementGroupHtml(group, assets){
     const matchText = matched
       ? matches.map(a => esc(a.name)).join(', ')
       : `not found in this wallet — <a class="req-hunt-link" href="${esc(zvUrl)}" target="_blank" rel="noopener">find one on ZurVault &#8599;</a>`;
+    // Prefer the wallet's own owned copy's actual cover when matched —
+    // more trustworthy proof than a reference image, and doubles as
+    // another way to catch a false positive (wrong-looking cover next to
+    // a claimed match is an immediate tell). Falls back to item.image
+    // (a reference cover, not owned) only when there's nothing owned to
+    // show instead.
+    const coverSrc = (matched && matches[0].image) ? matches[0].image : item.image;
+    const cover = coverSrc
+      ? `<img class="req-cover" src="${esc(coverSrc)}" loading="lazy" onerror="this.style.opacity=0.2">`
+      : `<div class="req-cover req-cover-empty">No preview</div>`;
     return `
       <div class="req-row ${matched ? 'matched' : ''}">
-        <span class="req-check">${matched ? '&check;' : '&mdash;'}</span>
-        <span class="req-label">${esc(item.label || '')}</span>
-        <span class="req-match">${matchText}</span>
+        ${cover}
+        <div class="req-info">
+          <div class="req-label-row"><span class="req-check">${matched ? '&check;' : '&mdash;'}</span><span class="req-label">${esc(item.label || '')}</span></div>
+          <div class="req-match">${matchText}</div>
+        </div>
       </div>`;
   }).join('');
   return `
