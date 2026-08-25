@@ -151,6 +151,16 @@
   footer a{ color:rgba(232,178,77,0.7); text-decoration:none; }
   footer a:hover{ color:var(--gold); }
 
+  /* Quiet, opt-in tip line — deliberately lower-contrast and lower-case
+     than the rest of the footer (no uppercase/letter-spacing) so it reads
+     as an aside, not a call to action. Same wallet/copy on every zurcovers
+     page (and on zurvault.com) since this supports the person building
+     both, not one site specifically. */
+  .tip-line{ margin-top:10px; font-size:.78rem; letter-spacing:normal; text-transform:none; color:rgba(243,239,230,0.5); line-height:1.6; }
+  .tip-wallet{ display:inline-block; margin-left:2px; cursor:pointer; color:rgba(232,178,77,0.6); font-family:'DM Mono',monospace; letter-spacing:.02em; border-bottom:1px dotted rgba(232,178,77,0.35); background:none; }
+  .tip-wallet:hover{ color:var(--gold); }
+  .tip-wallet.copied{ color:#7fe0a8; border-color:transparent; }
+
   @media (max-width:600px){
     header{ padding:32px 18px 18px; }
     .disclosures, .entry-panel, #status, .quest-list, footer{ padding-left:18px; padding-right:18px; }
@@ -187,7 +197,21 @@
 
 <footer>
   Wallet data via Helius (server-side) · <a href="index.html">zurcovers.com</a>
+  <div class="tip-line">Built by a collector, for collectors. Zur is free to use. If it's helped you find something for your collection, support is welcome, never expected. <span class="tip-wallet" data-tip-copy="CCiBnYND2nj9JApdGMMk2trGH65NA565XTfETaj6dnHs" role="button" tabindex="0" title="Click to copy full address">&#9678; CCiBnY&hellip;j6dnHs</span></div>
 </footer>
+<script>
+document.querySelectorAll('[data-tip-copy]').forEach(function(el){
+  el.addEventListener('click', async function(){
+    try{
+      await navigator.clipboard.writeText(el.dataset.tipCopy);
+      const original = el.textContent;
+      el.textContent = 'Copied ✓';
+      el.classList.add('copied');
+      setTimeout(function(){ el.textContent = original; el.classList.remove('copied'); }, 1500);
+    }catch(e){ /* clipboard API unavailable/denied — address is still visible to select and copy by hand */ }
+  });
+});
+</script>
 
 <script>
 const ME_PROXY_BASE = "https://zurcovers-proxy.stholt.workers.dev";

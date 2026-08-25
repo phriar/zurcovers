@@ -94,6 +94,16 @@ html, body { width:100%; height:100%; background:var(--ink); overflow:hidden; }
 .disclosure-box.warn strong { color:#e8917a; font-weight:500; }
 .disclosure-box.info { border:1px solid rgba(45,230,208,0.2); background:rgba(45,230,208,0.05); color:rgba(243,239,230,0.9); }
 
+/* Quiet, opt-in tip line — deliberately lower-contrast than the rest of
+   the entry screen so it reads as an aside, not a call to action. Same
+   wallet/copy on every zurcovers page (and on zurvault.com) since this
+   supports the person building both, not one site specifically. Entry
+   screen only — never shown during full-screen kiosk playback. */
+footer.tip-footer{ padding:0 32px 40px; font-size:.78rem; line-height:1.6; color:rgba(243,239,230,0.5); }
+.tip-wallet{ display:inline-block; margin-left:2px; cursor:pointer; color:rgba(232,178,77,0.6); font-family:'DM Mono',monospace; letter-spacing:.02em; border-bottom:1px dotted rgba(232,178,77,0.35); background:none; }
+.tip-wallet:hover{ color:var(--gold); }
+.tip-wallet.copied{ color:#7fe0a8; border-color:transparent; }
+
 /* COLLECTION PICKER */
 #picker { position:fixed; inset:0; display:none; flex-direction:column; z-index:100; background:var(--ink); overflow:hidden; }
 #picker.show { display:flex; }
@@ -241,7 +251,23 @@ html, body { width:100%; height:100%; background:var(--ink); overflow:hidden; }
     <div class="disclosure-box warn"><strong>Never share your private key or seed phrase with anyone, including here.</strong> This page only ever needs a <strong>public</strong> wallet address — the same address anyone could already look up on a block explorer. It never asks for anything else.</div>
     <div class="disclosure-box info">Unofficial fan project &mdash; not affiliated with, endorsed by, or sponsored by DC Comics, Warner Bros. Discovery, Candy Digital, or Magic Eden. No wallet connection, no signing, ever &mdash; nothing here can move or approve anything.</div>
   </div>
+
+  <footer class="tip-footer">Built by a collector, for collectors. Zur is free to use. If it's helped you find something for your collection, support is welcome, never expected. <span class="tip-wallet" data-tip-copy="CCiBnYND2nj9JApdGMMk2trGH65NA565XTfETaj6dnHs" role="button" tabindex="0" title="Click to copy full address">&#9678; CCiBnY&hellip;j6dnHs</span></footer>
 </div>
+
+<script>
+document.querySelectorAll('[data-tip-copy]').forEach(function(el){
+  el.addEventListener('click', async function(){
+    try{
+      await navigator.clipboard.writeText(el.dataset.tipCopy);
+      const original = el.textContent;
+      el.textContent = 'Copied ✓';
+      el.classList.add('copied');
+      setTimeout(function(){ el.textContent = original; el.classList.remove('copied'); }, 1500);
+    }catch(e){ /* clipboard API unavailable/denied — address is still visible to select and copy by hand */ }
+  });
+});
+</script>
 
 <!-- LOADING -->
 <div id="loading">
