@@ -201,6 +201,68 @@
   }
   .copy-candy-link:hover{ color:var(--paper); }
 
+  /* Flex Card — a one-button "generate a shareable image" feature, drawn
+     entirely on a <canvas> from data already in allGroups (no server
+     round-trip). Deliberately client-side-only V1: no OG-image endpoint,
+     no server rendering — the visitor gets a PNG to attach manually when
+     they post, not a link that auto-unfurls. */
+  .flex-card-row{ position:relative; z-index:1; margin:0 32px 20px; display:flex; }
+  .flex-card-btn{
+    background:transparent; border:2px solid var(--gold); color:var(--gold);
+    font-family:'Bangers',cursive; font-size:1rem; letter-spacing:.04em; text-transform:uppercase;
+    padding:9px 20px; border-radius:3px; cursor:pointer; transition:all .15s;
+  }
+  .flex-card-btn:hover:not(:disabled){ background:rgba(232,178,77,0.12); }
+  .flex-card-btn:disabled{ opacity:.5; cursor:default; }
+
+  .flex-card-modal{
+    position:fixed; inset:0; z-index:60; display:none; align-items:center; justify-content:center;
+    padding:20px; overflow-y:auto;
+  }
+  .flex-card-modal-backdrop{ position:fixed; inset:0; background:rgba(0,0,0,0.8); }
+  .flex-card-modal-panel{
+    position:relative; z-index:1; max-width:900px; width:100%;
+    background:var(--wood-mid); border:2px solid rgba(232,178,77,0.35); border-radius:6px;
+    padding:24px; box-shadow:0 20px 50px rgba(0,0,0,0.6);
+  }
+  .flex-card-modal-close{
+    position:absolute; top:10px; right:12px; background:transparent; border:none; color:rgba(243,239,230,0.9);
+    font-size:1.8rem; line-height:1; cursor:pointer; padding:4px 8px;
+  }
+  .flex-card-modal-close:hover{ color:var(--paper); }
+  #flex-canvas{ width:100%; height:auto; border-radius:4px; display:block; box-shadow:0 8px 24px rgba(0,0,0,0.5); background:var(--wood-dark); }
+
+  .flex-picker{ margin-bottom:16px; }
+  .flex-picker-label{ font-size:.82rem; letter-spacing:.08em; text-transform:uppercase; color:rgba(243,239,230,0.8); margin-bottom:8px; font-family:'DM Mono',monospace; }
+  .flex-picker-grid{ display:flex; flex-wrap:wrap; gap:8px; max-height:170px; overflow-y:auto; padding:4px; }
+  .flex-picker-chip{
+    display:flex; align-items:center; gap:6px; padding:4px 10px 4px 4px; border:1px solid rgba(243,239,230,0.15);
+    border-radius:4px; cursor:pointer; background:rgba(0,0,0,0.2); transition:all .15s; max-width:190px;
+  }
+  .flex-picker-chip:hover{ border-color:rgba(232,178,77,0.4); }
+  .flex-picker-chip img{ width:28px; height:42px; object-fit:cover; border-radius:2px; flex-shrink:0; background:rgba(255,255,255,0.05); }
+  .flex-picker-chip .no-preview-chip{ width:28px; height:42px; border-radius:2px; background:rgba(255,255,255,0.08); flex-shrink:0; }
+  .flex-picker-chip-name{ font-size:.8rem; font-family:'DM Mono',monospace; color:rgba(243,239,230,0.85); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .flex-picker-chip.selected{ border-color:var(--gold); background:rgba(232,178,77,0.12); }
+  .flex-picker-chip.selected .flex-picker-chip-name{ color:var(--gold); }
+  .flex-picker-note{ min-height:1.2em; margin-top:4px; font-size:.78rem; color:#e8917a; font-family:'DM Mono',monospace; }
+
+  .flex-card-caption{
+    width:100%; margin-top:14px; background:rgba(0,0,0,0.3); border:1px solid rgba(243,239,230,0.15); color:var(--paper);
+    font-family:'DM Mono',monospace; font-size:.88rem; padding:9px 11px; border-radius:3px; outline:none;
+  }
+  .flex-card-caption:focus{ border-color:var(--gold); }
+
+  .flex-card-modal-actions{ margin-top:14px; display:flex; justify-content:center; gap:10px; flex-wrap:wrap; }
+  .flex-card-modal-actions button{
+    border:none; font-family:'Bangers',cursive; font-size:1rem;
+    letter-spacing:.05em; text-transform:uppercase; padding:10px 24px; border-radius:2px; cursor:pointer;
+  }
+  .flex-card-modal-actions button:disabled{ opacity:.4; cursor:default; }
+  #flex-card-share{ background:var(--tag-red); color:#fff; }
+  #flex-card-download{ background:transparent; border:2px solid var(--gold); color:var(--gold); padding:8px 22px; }
+  .flex-card-hint{ margin-top:10px; text-align:center; font-size:.85rem; color:rgba(243,239,230,0.8); font-family:'DM Mono',monospace; }
+
   .controls-row{ position:relative; z-index:1; padding:0 32px 16px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
   .control-label{ font-size:.88rem; letter-spacing:.1em; text-transform:uppercase; color:rgba(243,239,230,0.89); margin-right:2px; }
   .pill{
@@ -341,6 +403,8 @@
     .comic{ width:calc((100vw - 48px) / 2); }
     .entry-panel button{ width:100%; }
     .entry-panel input{ min-width:0; width:100%; }
+    .flex-card-row{ margin-left:18px; margin-right:18px; }
+    .flex-card-modal-panel{ padding:18px; }
   }
 </style>
 </head>
@@ -371,6 +435,10 @@
 </div>
 <div class="value-note" id="value-note" style="display:none">Estimated using each comic's current Magic Eden collection floor &mdash; the going market rate for that print, not necessarily what your specific serial would sell for.</div>
 
+<div class="flex-card-row" id="flex-card-row" style="display:none">
+  <button class="flex-card-btn" id="flex-card-btn">Share a Complete Set &#9733;</button>
+</div>
+
 <div class="near-complete" id="near-complete" style="display:none">
   <div class="nc-heading">Almost There</div>
   <div id="near-complete-list"></div>
@@ -397,6 +465,21 @@
     <div class="copies-modal-sub" id="copies-modal-sub"></div>
     <div class="copies-modal-missing" id="copies-modal-missing"></div>
     <div class="copies-modal-grid" id="copies-modal-grid"></div>
+  </div>
+</div>
+
+<div class="flex-card-modal" id="flex-card-modal" style="display:none">
+  <div class="flex-card-modal-backdrop" id="flex-card-modal-backdrop"></div>
+  <div class="flex-card-modal-panel" role="dialog" aria-modal="true" aria-label="Flex card preview">
+    <button class="flex-card-modal-close" id="flex-card-modal-close" aria-label="Close">&times;</button>
+    <div class="flex-picker" id="flex-picker"></div>
+    <canvas id="flex-canvas" width="1200" height="675"></canvas>
+    <input type="text" class="flex-card-caption" id="flex-card-caption" maxlength="240" placeholder="Caption for your post…">
+    <div class="flex-card-modal-actions">
+      <button id="flex-card-share" disabled>Share</button>
+      <button id="flex-card-download" disabled>Download PNG</button>
+    </div>
+    <div class="flex-card-hint" id="flex-card-hint"></div>
   </div>
 </div>
 
@@ -450,6 +533,14 @@ const controlsRowEl = document.getElementById('controls-row');
 const sortDefaultBtn = document.getElementById('sort-default');
 const sortPriceBtn = document.getElementById('sort-price');
 const sortCompleteBtn = document.getElementById('sort-complete');
+const flexCardRowEl = document.getElementById('flex-card-row');
+const flexCardBtn = document.getElementById('flex-card-btn');
+const flexCardModalEl = document.getElementById('flex-card-modal');
+const flexCardDownloadBtn = document.getElementById('flex-card-download');
+const flexCardShareBtn = document.getElementById('flex-card-share');
+const flexCardCaptionEl = document.getElementById('flex-card-caption');
+const flexPickerEl = document.getElementById('flex-picker');
+const flexCardHintEl = document.getElementById('flex-card-hint');
 
 // allGroups is the single source of truth for everything on this page —
 // keyed by collectionKey. Each value accumulates floor/symbol/knownRarities
@@ -594,6 +685,7 @@ async function loadWallet(address){
   statCompleteEl.textContent = '…';
   nearCompleteEl.style.display = 'none';
   controlsRowEl.style.display = 'none';
+  flexCardRowEl.style.display = 'none';
   sortMode = 'default';
   sortDefaultBtn.classList.add('active');
   sortPriceBtn.classList.remove('active');
@@ -643,6 +735,9 @@ async function loadWallet(address){
   sortDefaultBtn.disabled = false;
   sortPriceBtn.disabled = false;
   sortCompleteBtn.disabled = false;
+  // flexCardRowEl stays hidden until the eager loop below actually finds a
+  // complete set (see updateFlexCardAvailability) — nothing to feature yet
+  // at this point, rarity checks haven't run.
 
   // Rarity-summary is folded into this same eager, paced loop (not left
   // lazy-only) so a "complete set" badge can show on the shelf itself
@@ -735,6 +830,7 @@ async function loadWallet(address){
     statCompleteEl.textContent = countCompleteSets();
     renderNearCompleteSets();
     updatePortfolioValue();
+    updateFlexCardAvailability();
     if(liveCallFlags.some(Boolean)) await sleep(LOOKUP_PACE_MS);
   }
 
@@ -1233,7 +1329,8 @@ function renderMissingRaritiesStatus(key){
     missingEl.style.display = 'block';
     missingEl.classList.remove('has-missing');
     missingEl.classList.add('is-complete');
-    missingEl.textContent = '★ Complete set — you own every rarity tier that exists in this collection.';
+    missingEl.innerHTML = '★ Complete set — you own every rarity tier that exists in this collection.<br>' +
+      `<a class="missing-hunt-link" href="#" data-share-set="${esc(key)}">Share this set &#8599;</a>`;
   } else {
     missingEl.style.display = 'block';
     missingEl.classList.remove('is-complete');
@@ -1292,6 +1389,7 @@ async function ensureKnownRarities(key){
   if(value !== null){
     g.knownRarities = value;
     g.rarityFetchFailed = false;
+    updateFlexCardAvailability(); // this on-demand check (the eager loop skips 1-tier collections) may have just completed a set the loop never would have found
   } else {
     g.rarityFetchFailed = true;
   }
@@ -1325,9 +1423,9 @@ document.getElementById('copies-modal-close').addEventListener('click', closeCop
 document.getElementById('copies-modal-backdrop').addEventListener('click', closeCopiesModal);
 document.getElementById('copies-modal-missing').addEventListener('click', (e) => {
   const retryLink = e.target.closest('[data-retry]');
-  if(!retryLink) return;
-  e.preventDefault();
-  retryRarityCheck(retryLink.dataset.retry);
+  if(retryLink){ e.preventDefault(); retryRarityCheck(retryLink.dataset.retry); return; }
+  const shareLink = e.target.closest('[data-share-set]');
+  if(shareLink){ e.preventDefault(); openFlexCardModal(shareLink.dataset.shareSet); }
 });
 document.addEventListener('keydown', (e) => {
   if(e.key === 'Escape') closeCopiesModal();
@@ -1348,6 +1446,545 @@ shelfEl.addEventListener('keydown', (e) => {
   e.preventDefault();
   openCollectionModal(trigger.dataset.cardId);
 });
+
+// --- Flex Card ---------------------------------------------------------
+// Client-side-only V1, redesigned around a single COMPLETE SET rather than
+// a free-form pick of up to 4 arbitrary collections (the original design —
+// see git history). Two problems with the original: (1) letting a visitor
+// assemble any 4 collections meant "building our own" collage instead of
+// just presenting something the wallet actually earned, and (2) it had no
+// way to show off the specific thing collectors actually want to flex —
+// a Legendary pull, or a low mint number on a specific serial. A completed
+// set (every rarity tier of one comic, all owned) is both the genuine
+// accomplishment worth sharing AND naturally has one cover per rarity
+// tier to show side by side, Legendary included, each labeled with its
+// real serial number straight from the item's own name — never fabricated.
+// Composes a downloadable PNG entirely on a <canvas> from data already
+// sitting in allGroups — no new Worker endpoint, no server-rendered OG
+// image, no per-rarity floor pricing (Magic Eden doesn't expose that
+// cheaply — the collection-wide floor is shown once instead of repeated
+// per tile, which would have implied a precision this doesn't have).
+
+const FLEX_RARITY_WEIGHT = { Legendary:5, Epic:4, Rare:3, Uncommon:2, Common:1 };
+const FLEX_RARITY_COLORS = { Common:'#c2c6cc', Uncommon:'#7fe0a8', Rare:'#2de6d0', Epic:'#c79bff', Legendary:'#e8b24d' };
+
+// Ranks complete sets against each other only (every candidate here is
+// already complete) — floor value first, then rarest tier owned, so a
+// wallet with several completed sets defaults to leading with its most
+// valuable one. The picker below lets that default be overridden.
+function flexCardScore(key){
+  const g = allGroups[key];
+  const floor = typeof g.floor === 'number' ? g.floor : 0;
+  let maxRarity = 0;
+  for(const item of g.items){
+    const r = normalizeRarity(item.attributes);
+    if(r && FLEX_RARITY_WEIGHT[r] > maxRarity) maxRarity = FLEX_RARITY_WEIGHT[r];
+  }
+  return floor * 100 + maxRarity;
+}
+function listCompleteSetKeys(){
+  return Object.keys(allGroups).filter(key => computeMissingRarities(key)?.length === 0);
+}
+
+// A serial straight from the item's own on-chain name (the same "(123/456)"
+// suffix cleanTitle strips off for display elsewhere) — never computed or
+// guessed, only shown when the wallet's own copy actually carries one.
+function extractSerial(rawName){
+  const m = /\(\s*(\d+)\s*\/\s*(\d+)\s*\)\s*$/.exec(String(rawName || ''));
+  return m ? { num: parseInt(m[1], 10), total: parseInt(m[2], 10) } : null;
+}
+
+// The representative copy for one rarity tier within a set: lowest serial
+// number first (a low mint is the actual flex), falling back to whatever
+// has an image if no copy in this tier has a parseable serial.
+function bestItemForRarityTier(items, rarity){
+  const tierItems = items.filter(i => normalizeRarity(i.attributes) === rarity);
+  if(tierItems.length === 0) return null;
+  const ranked = [...tierItems].sort((a, b) => {
+    const sa = extractSerial(a.name)?.num ?? Infinity;
+    const sb = extractSerial(b.name)?.num ?? Infinity;
+    if(sa !== sb) return sa - sb;
+    return (b.image ? 1 : 0) - (a.image ? 1 : 0);
+  });
+  return ranked.find(i => i.image) || ranked[0];
+}
+
+// One row per rarity tier that actually exists in this set (g.knownRarities
+// — same ground-truth on-chain source computeMissingRarities uses), each
+// with its representative item, how many copies of that tier are owned,
+// and that item's real serial if it has one.
+function computeSetTiers(key){
+  const g = allGroups[key];
+  if(!g || !g.knownRarities) return [];
+  return RARITY_ORDER.filter(r => g.knownRarities.has(r)).map(r => {
+    const item = bestItemForRarityTier(g.items, r);
+    const count = g.items.filter(i => normalizeRarity(i.attributes) === r).length;
+    return { rarity:r, count, item, serial: item ? extractSerial(item.name) : null };
+  });
+}
+
+// Per-rarity floor price — Magic Eden has no dedicated "floor by attribute"
+// endpoint, so this fetches ONE page of the collection's current listings
+// (through the Worker's existing generic pass-through proxy — already
+// CORS-enabled and edge-cached for 60s, no Worker change needed) and takes
+// the lowest price seen per rarity trait. Listings come back sorted
+// ascending by price (confirmed live), so the first listing encountered
+// for a given rarity is already that rarity's floor among what's returned.
+// One call covers every tier at once — never one call per rarity, which
+// would risk Magic Eden's real per-minute rate limit (confirmed live: a
+// couple of unpaced calls in quick succession is enough to trip it). A
+// tier with no active listing in the page fetched (common for a scarce
+// tier — the same "nobody's selling one right now" gap noted elsewhere on
+// this page) simply has no entry here, never a fabricated price.
+async function fetchRarityFloors(symbol){
+  try{
+    const res = await fetch(`${ME_BASE}/collections/${encodeURIComponent(symbol)}/listings?limit=100`);
+    if(!res.ok) return {};
+    const listings = await res.json();
+    const mins = {};
+    for(const l of (Array.isArray(listings) ? listings : [])){
+      const attrs = l?.token?.attributes || [];
+      const rarityAttr = attrs.find(a => /^rarity$/i.test(a?.trait_type || ''));
+      const rarity = rarityAttr ? normalizeRarityValue(rarityAttr.value) : null;
+      if(!rarity || mins[rarity] !== undefined) continue; // already have this tier's price from an earlier (cheaper-or-equal) listing
+      if(typeof l.price === 'number') mins[rarity] = l.price;
+    }
+    return mins;
+  }catch(e){
+    return {};
+  }
+}
+
+// Populated by drawFlexCard once it's resolved a set's live per-rarity
+// listings (see flexFloorToCompleteCache below) — keyed so the caption can
+// reuse the exact same "floor to complete" figure shown on the card
+// itself, rather than a different, cheaper single-item number.
+let flexFloorToCompleteCache = {};
+
+function defaultShareTextForSet(key){
+  const g = allGroups[key];
+  const tiers = computeSetTiers(key);
+  const totalCopies = tiers.reduce((n, t) => n + t.count, 0);
+  // Before the live listings fetch resolves (the caption is set once
+  // synchronously, before drawFlexCard's fetch even starts), this falls
+  // back to g.floor — a single item's price, not the sum shown on the
+  // card — as a rough placeholder. redrawFlexCanvas refreshes the caption
+  // with the real "floor to complete" figure once it's known, as long as
+  // the visitor hasn't already started editing the caption themselves.
+  const floorText = flexFloorToCompleteCache[key]
+    ? ` — floor to complete: ${flexFloorToCompleteCache[key]}`
+    : (typeof g.floor === 'number' ? ` — floor ${g.floor.toFixed(3)} SOL` : '');
+  return `Complete set: ${g.name} — all ${tiers.length} rarities (${totalCopies} copies)${floorText}. zurcovers.com`;
+}
+
+// Shows/hides the top-level entry point based on whether the wallet has
+// ANY complete set yet — called from the eager loading loop as each
+// collection's rarity check resolves (so this appears mid-load, not just
+// once everything's done) and from ensureKnownRarities (the eager loop
+// skips single-tier collections, so an on-demand check from opening that
+// collection's own panel is the only way some sets ever get found).
+function updateFlexCardAvailability(){
+  flexCardRowEl.style.display = listCompleteSetKeys().length > 0 ? 'flex' : 'none';
+}
+
+// crossOrigin='anonymous' means a host that doesn't send CORS headers
+// fails to load (onerror) rather than loading a canvas-tainting image —
+// so a failed cover here degrades to a placeholder tile instead of
+// silently poisoning the whole export (see drawRarityRow's null-img
+// branch, and the try/catch around toBlob below as a last-resort net).
+function loadImageSafe(url){
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function flexRoundRect(ctx, x, y, w, h, r){
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+// object-fit:cover equivalent — crops the source to the target aspect
+// ratio rather than squashing it, same as every cover elsewhere on this
+// page (.cover{ object-fit:cover }).
+function flexDrawImageCover(ctx, img, dx, dy, dw, dh){
+  const ir = img.width / img.height, tr = dw / dh;
+  let sx, sy, sw, sh;
+  if(ir > tr){ sh = img.height; sw = sh * tr; sx = (img.width - sw) / 2; sy = 0; }
+  else { sw = img.width; sh = sw / tr; sx = 0; sy = (img.height - sh) / 2; }
+  ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+}
+
+function drawStatsRow(ctx, stats, x, y, w, h){
+  const gap = 10;
+  const tileW = (w - gap * (stats.length - 1)) / stats.length;
+  stats.forEach((s, i) => {
+    const tx = x + i * (tileW + gap);
+    flexRoundRect(ctx, tx, y, tileW, h, 6);
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(232,178,77,0.25)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.fillStyle = i === stats.length - 1 ? '#e8b24d' : '#f3efe6';
+    ctx.font = '24px Bangers, cursive';
+    ctx.textAlign = 'center';
+    ctx.fillText(s.value, tx + tileW / 2, y + 32);
+
+    ctx.fillStyle = 'rgba(243,239,230,0.85)';
+    ctx.font = '11px "DM Mono", monospace';
+    ctx.fillText(s.label, tx + tileW / 2, y + 53);
+  });
+  ctx.textAlign = 'left';
+}
+
+// tiles: [{ rarity, count, serial, floor, img }] — img is null for a tier
+// whose cover failed to load (see loadImageSafe), drawn as a placeholder
+// rather than skipped, so the row's spacing/count still matches the real
+// tier list. floor is undefined when fetchRarityFloors found no active
+// listing for that tier. Labels are drawn BELOW each cover (not as an
+// overlay on the art) — a rarity-colored frame is still the at-a-glance
+// cue, but the actual name/mint/floor text needs to stay legible even
+// once the image is downscaled for sharing.
+function drawRarityRow(ctx, tiles, x, y, w, h){
+  if(tiles.length === 0) return;
+  const gap = 20;
+  const n = tiles.length;
+  const captionH = 46; // two caption lines below each cover
+  const coverH = h - captionH;
+  const coverW = Math.min(coverH * (2 / 3), (w - gap * (n - 1)) / n);
+  const totalW = n * coverW + (n - 1) * gap;
+  const startX = x + (w - totalW) / 2;
+  const tiltDeg = [-4, 3, -2, 5, -3];
+
+  tiles.forEach((t, i) => {
+    const cx = startX + i * (coverW + gap) + coverW / 2;
+    const cy = y + coverH / 2;
+    const angle = (tiltDeg[i % tiltDeg.length] * Math.PI) / 180;
+    const dx = -coverW / 2, dy = -coverH / 2;
+    const color = FLEX_RARITY_COLORS[t.rarity] || '#f3efe6';
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(angle);
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur = 18;
+    ctx.shadowOffsetY = 8;
+    flexRoundRect(ctx, dx, dy, coverW, coverH, 4);
+    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    flexRoundRect(ctx, dx, dy, coverW, coverH, 4);
+    ctx.clip();
+    if(t.img){
+      flexDrawImageCover(ctx, t.img, dx, dy, coverW, coverH);
+    } else {
+      ctx.fillStyle = 'rgba(255,255,255,0.08)';
+      ctx.fillRect(dx, dy, coverW, coverH);
+      ctx.fillStyle = 'rgba(243,239,230,0.8)';
+      ctx.font = '12px "DM Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('NO PREVIEW', 0, 4);
+    }
+    ctx.restore();
+
+    // Rarity-colored frame — a visual cue that reads even before the
+    // caption text below does. Same palette as .comic-rarity elsewhere.
+    flexRoundRect(ctx, dx, dy, coverW, coverH, 4);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = color;
+    ctx.stroke();
+
+    ctx.restore(); // back to unrotated space — captions below are upright, not tilted
+
+    // Caption line 1: rarity name (colored, matches the frame) + copies owned.
+    ctx.fillStyle = color;
+    ctx.font = '15px Bangers, cursive';
+    ctx.textAlign = 'center';
+    const rLabel = t.rarity.toUpperCase() + (t.count > 1 ? ` ×${t.count}` : '');
+    ctx.fillText(rLabel, cx, y + coverH + 20);
+
+    // Caption line 2: mint number — straight from the wallet's own item
+    // name, never fabricated, omitted if unparseable — and this tier's
+    // floor, the lowest active listing fetchRarityFloors found for it
+    // (may read "no listings" for a scarce tier nobody's currently selling).
+    const parts = [];
+    if(t.serial) parts.push(`#${t.serial.num}/${t.serial.total}`);
+    parts.push(typeof t.floor === 'number' ? `${t.floor.toFixed(3)} SOL` : 'no listings');
+    ctx.fillStyle = 'rgba(243,239,230,0.8)';
+    ctx.font = '12px "DM Mono", monospace';
+    ctx.fillText(parts.join(' · '), cx, y + coverH + 38);
+  });
+  ctx.textAlign = 'left';
+}
+
+// Bumped on every redraw request; each in-flight drawFlexCard() call
+// carries the token it was started with and checks it back against this
+// after each await, so a call superseded by a newer set selection bails
+// out before drawing anything more instead of racing the newer one to
+// paint last (confirmed live: without this, a stale draw could finish
+// after a newer one and silently overwrite it).
+let flexRedrawGen = 0;
+
+async function drawFlexCard(token, key){
+  const g = allGroups[key];
+  const canvas = document.getElementById('flex-canvas');
+  const ctx = canvas.getContext('2d');
+  const W = 1200, H = 675, RES_SCALE = 2; // 2x resolution baked into the exported PNG, downscaled to W×H on screen via CSS
+  canvas.width = W * RES_SCALE;
+  canvas.height = H * RES_SCALE;
+  ctx.setTransform(RES_SCALE, 0, 0, RES_SCALE, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#3a230f');
+  bg.addColorStop(0.7, '#241407');
+  bg.addColorStop(1, '#1a0e05');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Ensures the Google Fonts already linked in <head> are actually loaded
+  // before the first canvas text draw — resolves immediately if they're
+  // already in cache (the common case, since the wallet fetch itself takes
+  // longer than font load), so this is never a meaningful delay.
+  await Promise.all([
+    document.fonts.load('44px Bangers'),
+    document.fonts.load('16px "DM Mono"'),
+  ]).catch(() => {});
+  if(token !== flexRedrawGen) return false; // superseded while waiting on fonts
+
+  // Set name as the header — shrinks to fit rather than truncating, since
+  // DC3 names bake in the issue number and year range and that's the
+  // whole point of the card (e.g. "Absolute Batman (2024-) #1").
+  ctx.fillStyle = '#e8b24d';
+  let headerSize = 44;
+  ctx.font = `${headerSize}px Bangers, cursive`;
+  while(ctx.measureText(g.name).width > W - 80 && headerSize > 22){
+    headerSize -= 2;
+    ctx.font = `${headerSize}px Bangers, cursive`;
+  }
+  ctx.fillText(g.name, 40, 60);
+
+  ctx.fillStyle = 'rgba(243,239,230,0.7)';
+  ctx.font = '14px "DM Mono", monospace';
+  try{ ctx.letterSpacing = '3px'; }catch(e){}
+  ctx.fillText('COMPLETE SET · ZURCOVERS.COM', 42, 82);
+  try{ ctx.letterSpacing = '0px'; }catch(e){}
+
+  const tiers = computeSetTiers(key);
+  const totalCopies = tiers.reduce((n, t) => n + t.count, 0);
+
+  flexCardHintEl.textContent = 'Loading covers…';
+  const [covers, rarityFloors] = await Promise.all([
+    Promise.all(tiers.map(async t => {
+      const img = t.item?.image ? await loadImageSafe(t.item.image) : null;
+      return { ...t, img };
+    })),
+    g.symbol ? fetchRarityFloors(g.symbol) : Promise.resolve({}),
+  ]);
+  if(token !== flexRedrawGen) return false; // superseded while waiting on covers/floors — a newer draw owns the canvas now
+
+  // Set floor = each rarity tier's own floor added together — the cost to
+  // assemble one of every tier at today's cheapest listing, not just the
+  // price of the single cheapest tier (which is what a plain min() gave —
+  // a misleading number for a "complete set" card, since it ignored what
+  // the other 3-4 tiers cost). Only sums tiers a live listing was actually
+  // found for (rarityFloors, from this same fresh snapshot the per-tile
+  // captions below are drawn from — never the separately-cached g.floor,
+  // which can run up to 15 min stale and disagree with a fresher number).
+  // A '+' is appended when at least one tier had no active listing in the
+  // snapshot, since the true cost-to-complete is then unknown and at least
+  // as high as what's shown, never lower.
+  const tierFloors = tiers.map(t => rarityFloors[t.rarity]).filter(v => typeof v === 'number');
+  const sumFloor = tierFloors.length > 0 ? tierFloors.reduce((a, b) => a + b, 0) : null;
+  const incomplete = tierFloors.length < tiers.length;
+  const floorText = sumFloor !== null
+    ? `${sumFloor.toFixed(3)} SOL${incomplete ? '+' : ''}`
+    : (typeof g.floor === 'number' ? `${g.floor.toFixed(3)} SOL+` : 'n/a'); // no live listings at all — g.floor (single-item) is the best available lower bound
+  if(floorText !== 'n/a') flexFloorToCompleteCache[key] = floorText; // lets the caption reuse this exact figure — see defaultShareTextForSet
+  drawStatsRow(ctx, [
+    { label:'RARITY TIERS', value:String(tiers.length) },
+    { label:'TOTAL COPIES', value:String(totalCopies) },
+    { label:'FLOOR TO COMPLETE', value:floorText },
+  ], 40, 100, W - 80, 64);
+
+  const tilesWithFloor = covers.map(t => ({ ...t, floor: rarityFloors[t.rarity] }));
+  drawRarityRow(ctx, tilesWithFloor, 40, 180, W - 80, 412);
+
+  ctx.fillStyle = 'rgba(243,239,230,0.55)';
+  ctx.font = '13px "DM Mono", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('Unofficial fan project — not affiliated with DC, Warner Bros. Discovery, Candy Digital, or Magic Eden.', W / 2, H - 20);
+  ctx.textAlign = 'left';
+  return true;
+}
+
+// The set currently drawn in the modal — set by openFlexCardModal and by
+// picking a different chip in the (only-shown-when-there's-more-than-one)
+// set picker.
+let flexActiveSetKey = null;
+
+function renderFlexSetPicker(){
+  const keys = listCompleteSetKeys();
+  if(keys.length <= 1){ flexPickerEl.innerHTML = ''; return; } // nothing to choose between
+  flexPickerEl.innerHTML =
+    `<div class="flex-picker-label">Which complete set?</div>` +
+    `<div class="flex-picker-grid">` +
+    keys.map(key => {
+      const g = allGroups[key];
+      const tiers = computeSetTiers(key);
+      const lead = tiers.find(t => t.rarity === 'Legendary') || tiers[tiers.length - 1];
+      const img = lead?.item?.image || null;
+      const selected = key === flexActiveSetKey;
+      return `<div class="flex-picker-chip${selected ? ' selected' : ''}" data-picker-key="${esc(key)}" role="radio" aria-checked="${selected}" tabindex="0">` +
+        (img ? `<img src="${esc(img)}" loading="lazy">` : `<div class="no-preview-chip"></div>`) +
+        `<span class="flex-picker-chip-name">${esc(g.name)}</span></div>`;
+    }).join('') +
+    `</div>`;
+}
+// True until the visitor actually types in the caption box — guards the
+// post-draw refresh below from clobbering a caption someone's already
+// started customizing.
+let flexCaptionEdited = false;
+flexCardCaptionEl.addEventListener('input', () => { flexCaptionEdited = true; });
+function setDefaultCaption(key){
+  flexCardCaptionEl.value = defaultShareTextForSet(key);
+  flexCaptionEdited = false;
+}
+
+function selectFlexSet(key){
+  if(key === flexActiveSetKey) return;
+  flexActiveSetKey = key;
+  renderFlexSetPicker();
+  setDefaultCaption(key);
+  redrawFlexCanvas();
+}
+flexPickerEl.addEventListener('click', (e) => {
+  const chip = e.target.closest('[data-picker-key]');
+  if(chip) selectFlexSet(chip.dataset.pickerKey);
+});
+flexPickerEl.addEventListener('keydown', (e) => {
+  if(e.key !== 'Enter' && e.key !== ' ') return;
+  const chip = e.target.closest('[data-picker-key]');
+  if(!chip) return;
+  e.preventDefault();
+  selectFlexSet(chip.dataset.pickerKey);
+});
+
+async function redrawFlexCanvas(){
+  const myGen = ++flexRedrawGen;
+  const key = flexActiveSetKey;
+  flexCardShareBtn.disabled = true;
+  flexCardDownloadBtn.disabled = true;
+  flexCardHintEl.textContent = 'Building your flex card…';
+  if(!key) return;
+  try{
+    const finished = await drawFlexCard(myGen, key);
+    if(!finished || myGen !== flexRedrawGen) return; // a newer redraw superseded this one — let it own the final button/hint state too
+    // Refreshes the caption's floor figure now that the live per-rarity
+    // listings have resolved (defaultShareTextForSet read flexFloorToCompleteCache
+    // which drawFlexCard just populated) — but only if the visitor hasn't
+    // already started typing their own caption, so this never overwrites
+    // a real edit out from under them.
+    if(!flexCaptionEdited) setDefaultCaption(key);
+    flexCardShareBtn.disabled = false;
+    flexCardDownloadBtn.disabled = false;
+    flexCardHintEl.textContent = 'Right-click / long-press the image to save it, or use the buttons below.';
+  }catch(e){
+    if(myGen === flexRedrawGen) flexCardHintEl.textContent = "Couldn't build the flex card — try again.";
+  }
+}
+
+// key: a specific collectionKey (from the "Share this set" link inside a
+// collection's own panel) or omitted (from the top-level button — picks
+// the wallet's best-scoring complete set as the default, still switchable
+// from the picker if there's more than one).
+async function openFlexCardModal(key){
+  const completeKeys = listCompleteSetKeys();
+  if(completeKeys.length === 0) return; // both entry points are gated on this being non-empty; nothing to show if not
+  flexActiveSetKey = (key && completeKeys.includes(key)) ? key : completeKeys.sort((a, b) => flexCardScore(b) - flexCardScore(a))[0];
+  flexCardModalEl.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+  renderFlexSetPicker();
+  setDefaultCaption(flexActiveSetKey);
+  await redrawFlexCanvas();
+}
+function closeFlexCardModal(){
+  flexCardModalEl.style.display = 'none';
+  document.body.style.overflow = '';
+}
+flexCardBtn.addEventListener('click', () => openFlexCardModal());
+document.getElementById('flex-card-modal-close').addEventListener('click', closeFlexCardModal);
+document.getElementById('flex-card-modal-backdrop').addEventListener('click', closeFlexCardModal);
+
+// Shared by both Download and Share — a canvas painted from cross-origin
+// images loaded without proper CORS headers throws synchronously here
+// (SecurityError on a tainted canvas); loadImageSafe's crossOrigin
+// handling is what should prevent that in practice, but this stays as a
+// last-resort net either way.
+function flexCanvasToBlob(){
+  return new Promise((resolve) => {
+    try{
+      document.getElementById('flex-canvas').toBlob((blob) => resolve(blob), 'image/png');
+    }catch(e){ resolve(null); }
+  });
+}
+
+async function downloadFlexCard(){
+  const blob = await flexCanvasToBlob();
+  if(!blob){ flexCardHintEl.textContent = "Couldn't export image — try again."; return; }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'zurcovers-flex-card.png';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+flexCardDownloadBtn.addEventListener('click', downloadFlexCard);
+
+// navigator.share with a files array (Web Share API, "Level 2") hands the
+// image straight to the OS share sheet — on a phone with the X app
+// installed, that's a real one-tap share: the button builds the tweet
+// text and pulls the image in together, no manual attach step. Desktop
+// browser support for file-sharing is inconsistent (and X's own web
+// compose intent has no way to attach an image at all, only prefilled
+// text), so anything unsupported falls back to downloading the PNG and
+// opening X's compose window with the caption ready — one manual attach
+// step instead of the zero-effort path this is trying to create, but
+// still better than expecting a visitor to screenshot the canvas.
+async function shareFlexCard(){
+  const blob = await flexCanvasToBlob();
+  if(!blob){ flexCardHintEl.textContent = "Couldn't export image — try again."; return; }
+  const shareText = flexCardCaptionEl.value.trim() || defaultShareTextForSet(flexActiveSetKey);
+  const file = new File([blob], 'zurcovers-flex-card.png', { type: 'image/png' });
+  if(navigator.canShare && navigator.canShare({ files: [file] })){
+    try{
+      await navigator.share({ files: [file], text: shareText });
+      return;
+    }catch(e){
+      if(e.name === 'AbortError') return; // visitor cancelled the native share sheet — not a failure
+    }
+  }
+  await downloadFlexCard();
+  window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`, '_blank', 'noopener');
+  flexCardHintEl.textContent = 'Image downloaded — attach it in the X window that just opened.';
+}
+flexCardShareBtn.addEventListener('click', shareFlexCard);
 
 sortDefaultBtn.addEventListener('click', () => {
   sortMode = 'default';
