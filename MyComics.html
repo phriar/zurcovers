@@ -1322,14 +1322,29 @@ function renderCollectionModalGrid(key){
   if(!g) return;
   const tiles = groupByTitleAndRarity(g.items);
   for(const tile of tiles) ensureCandyUrl(tile.items[0], key);
-  const distinctCount = groupByName(g.items).size;
-  const totalCount = g.items.length;
-  const floorText = g.floor === undefined ? '' : (g.floor === null ? ' · no ME floor data' : ` · floor ${g.floor.toFixed(3)} SOL`);
 
   document.getElementById('copies-modal-title').textContent = g.name;
+  updateModalFloorText(key); // separate function since this line (unlike the rest of this panel) needs to update again once a complete set's floor-to-complete figure resolves — see renderMissingRaritiesStatus
+  document.getElementById('copies-modal-grid').innerHTML = tiles.map(collectionModalTileHtml).join('');
+}
+
+// The sub-header line — split out from renderCollectionModalGrid (which
+// only ever runs once per modal open, see its own comment) so this one
+// piece can be refreshed on its own once a complete set's "floor to
+// complete" figure resolves, without touching the cover grid at all.
+// Before that resolves (or for a set that isn't complete), falls back to
+// the plain collection-wide floor, same as ever.
+function updateModalFloorText(key){
+  const g = allGroups[key];
+  if(!g) return;
+  const distinctCount = groupByName(g.items).size;
+  const totalCount = g.items.length;
+  const isComplete = computeMissingRarities(key)?.length === 0;
+  const floorText = (isComplete && flexFloorToCompleteCache[key])
+    ? ` · floor to complete: ${flexFloorToCompleteCache[key]}`
+    : (g.floor === undefined ? '' : (g.floor === null ? ' · no ME floor data' : ` · floor ${g.floor.toFixed(3)} SOL`));
   document.getElementById('copies-modal-sub').textContent =
     `${distinctCount} comic${distinctCount !== 1 ? 's' : ''} · ${totalCount} cop${totalCount !== 1 ? 'ies' : 'y'} owned${floorText}`;
-  document.getElementById('copies-modal-grid').innerHTML = tiles.map(collectionModalTileHtml).join('');
 }
 
 // The only part of the panel that re-renders as data arrives (the rarity
@@ -1355,6 +1370,19 @@ function renderMissingRaritiesStatus(key){
     missingEl.classList.add('is-complete');
     missingEl.innerHTML = '★ Complete set — you own every rarity tier that exists in this collection.<br>' +
       `<a class="missing-hunt-link" href="#" data-share-set="${esc(key)}">Share this set &#8599;</a>`;
+    // Sub-header still shows the plain collection-wide floor at this point
+    // (updateModalFloorText's fallback) — patches in the same sum-of-each-
+    // rarity "floor to complete" figure the Flex Card shows once this
+    // resolves, so the two views never disagree (confirmed live: before
+    // this call existed, opening a complete set's own panel still showed
+    // the single-item collection floor even though its own Flex Card had
+    // already computed the real per-rarity sum).
+    updateModalFloorText(key); // in case a Flex Card generation already cached it
+    if(flexFloorToCompleteCache[key] === undefined){
+      ensureFloorToComplete(key).then(() => {
+        if(openModalKey === key) updateModalFloorText(key);
+      });
+    }
   } else {
     missingEl.style.display = 'block';
     missingEl.classList.remove('is-complete');
@@ -1579,11 +1607,49 @@ async function fetchRarityFloors(symbol){
   }
 }
 
+// Set floor = each rarity tier's own floor added together — the cost to
+// assemble one of every tier at today's cheapest listing, not just the
+// price of the single cheapest tier (a plain min() would be a misleading
+// number for a "complete set," since it ignores what the other 3-4 tiers
+// cost). Only sums tiers a live listing was actually found for (rarityFloors
+// — never the separately-cached g.floor, which can run up to 15 min stale
+// and disagree with a fresher number). A '+' is appended when at least one
+// tier had no active listing in the snapshot, since the true cost-to-
+// complete is then unknown and at least as high as what's shown, never
+// lower. Shared by drawFlexCard's stat tile and the collection modal's
+// sub-header (updateModalFloorText/ensureFloorToComplete below) — one
+// formula, so the two views can never quote different numbers for the
+// same set (confirmed live: they used to, before this was factored out).
+function computeFloorToCompleteText(key, tiers, rarityFloors){
+  const g = allGroups[key];
+  const tierFloors = tiers.map(t => rarityFloors[t.rarity]).filter(v => typeof v === 'number');
+  const sumFloor = tierFloors.length > 0 ? tierFloors.reduce((a, b) => a + b, 0) : null;
+  const incomplete = tierFloors.length < tiers.length;
+  if(sumFloor !== null) return `${sumFloor.toFixed(3)} SOL${incomplete ? '+' : ''}`;
+  return typeof g.floor === 'number' ? `${g.floor.toFixed(3)} SOL+` : 'n/a'; // no live listings at all — g.floor (single-item) is the best available lower bound
+}
+
 // Populated by drawFlexCard once it's resolved a set's live per-rarity
 // listings (see flexFloorToCompleteCache below) — keyed so the caption can
 // reuse the exact same "floor to complete" figure shown on the card
 // itself, rather than a different, cheaper single-item number.
 let flexFloorToCompleteCache = {};
+
+// Lazily resolves + caches the same "floor to complete" figure the Flex
+// Card shows, for callers that need it without going through the Flex
+// Card modal at all (the collection panel's own sub-header — see
+// updateModalFloorText). Returns the cached value immediately if the Flex
+// Card (or an earlier call to this) already resolved it for this set.
+async function ensureFloorToComplete(key){
+  if(flexFloorToCompleteCache[key] !== undefined) return flexFloorToCompleteCache[key];
+  const g = allGroups[key];
+  if(!g?.symbol) return null;
+  const tiers = computeSetTiers(key);
+  const rarityFloors = await fetchRarityFloors(g.symbol);
+  const text = computeFloorToCompleteText(key, tiers, rarityFloors);
+  if(text !== 'n/a') flexFloorToCompleteCache[key] = text;
+  return text;
+}
 
 function defaultShareTextForSet(key){
   const g = allGroups[key];
@@ -1832,13 +1898,8 @@ async function drawFlexCard(token, key){
   // A '+' is appended when at least one tier had no active listing in the
   // snapshot, since the true cost-to-complete is then unknown and at least
   // as high as what's shown, never lower.
-  const tierFloors = tiers.map(t => rarityFloors[t.rarity]).filter(v => typeof v === 'number');
-  const sumFloor = tierFloors.length > 0 ? tierFloors.reduce((a, b) => a + b, 0) : null;
-  const incomplete = tierFloors.length < tiers.length;
-  const floorText = sumFloor !== null
-    ? `${sumFloor.toFixed(3)} SOL${incomplete ? '+' : ''}`
-    : (typeof g.floor === 'number' ? `${g.floor.toFixed(3)} SOL+` : 'n/a'); // no live listings at all — g.floor (single-item) is the best available lower bound
-  if(floorText !== 'n/a') flexFloorToCompleteCache[key] = floorText; // lets the caption reuse this exact figure — see defaultShareTextForSet
+  const floorText = computeFloorToCompleteText(key, tiers, rarityFloors);
+  if(floorText !== 'n/a') flexFloorToCompleteCache[key] = floorText; // lets the caption (and the collection modal's sub-header — see ensureFloorToComplete) reuse this exact figure
   drawStatsRow(ctx, [
     { label:'RARITY TIERS', value:String(tiers.length) },
     { label:'TOTAL COPIES', value:String(totalCopies) },
