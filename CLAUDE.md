@@ -73,6 +73,44 @@ Manual, dashboard-based deploy — there is no CI/CD wiring this up:
 
 **Every Worker code change needs a manual redeploy** — pushing to GitHub does not touch the live Worker.
 
+### Incident (2026-08-25): don't reconnect Git deploy without a wrangler.toml
+
+Briefly connected `zurcovers-proxy` to this GitHub repo via Cloudflare's
+Git integration (Workers Builds), hoping to replace the manual-paste step
+above. **This took the live Worker down** — every `/v2/*` endpoint started
+returning bare 404s with no CORS headers (confirmed live: `wallet-assets`,
+`/collections/{symbol}/stats`, everything). Root cause: this repo has no
+`wrangler.toml`/`wrangler.jsonc` telling Cloudflare which file is the
+actual Worker entry point, so its Git-based build auto-detected the pile
+of `.html` files and deployed the *whole repo as static Worker Assets*
+instead of running `zurcovers-proxy-worker.js` — confirmed by `CNAME` and
+`favicon.svg` serving directly from `zurcovers-proxy.stholt.workers.dev`.
+
+**Fixed** by rolling back to the last manually-deployed version in the
+Worker's Version History tab (the one still marked active/highlighted —
+not by re-pasting code) and disconnecting the Git integration in Settings.
+Confirmed restored via live curl checks (real JSON responses, working
+KV cache, working Helius calls) — not just "the dashboard looks fine."
+
+**If tomorrow's push causes issues**, check in this order:
+1. Did anyone reconnect the Git integration? If so, that's almost
+   certainly it — disconnect it and roll back in Version History to the
+   last known-good manually-deployed version (don't re-paste from
+   scratch unless the rollback list doesn't go back far enough).
+2. Test the actual live endpoints with curl, not just the dashboard UI —
+   the dashboard's newer unified **"Bindings" tab can show "No connected
+   bindings" for a Worker that has a genuinely working KV namespace and
+   secret**, if those were originally attached the classic way (Settings →
+   Variables) before that tab existed. Confirmed live (2026-08-25): KV
+   cache `HIT`s and real Helius data kept flowing the entire time that tab
+   read empty. Don't treat that tab as ground truth — a real request
+   (e.g. `curl .../v2/collections/showcase_19561978_22/stats` and check
+   for `x-zurcovers-cache-status: HIT`) is.
+3. If Git auto-deploy is wanted again later, it needs a proper
+   `wrangler.toml` first (`main` pointing at `zurcovers-proxy-worker.js`,
+   the `ZURCOVERS_CACHE` KV binding, no static assets directory) — don't
+   just reconnect and hope.
+
 ## What's in use
 
 - **Hosting**: GitHub Pages, custom domain via `CNAME`, DNS on Cloudflare (proxied).
