@@ -96,32 +96,14 @@
     color:rgba(243,239,230,0.89); font-family:'DM Mono',monospace;
   }
 
-  /* "Almost There" — collections missing 1+ rarity tier that actually
-     exists in that collection, closest-to-complete first. Built entirely
-     from data the eager
-     per-collection loading loop already fetches (no extra network calls),
-     re-rendered as each collection's rarity check resolves. Capped to the
-     closest 5 (NEAR_COMPLETE_DISPLAY_CAP) so this stays a quick scan, not a second shelf — the point
-     is "here's what to look at next," not a full inventory (that's what
-     opening each collection's own panel is for). */
-  .near-complete{
-    position:relative; z-index:1; margin:0 32px 16px; padding:14px 18px;
-    border:1px solid rgba(232,178,77,0.3); border-radius:4px; background:rgba(232,178,77,0.07);
-  }
-  .nc-heading{
-    font-family:'Bangers',cursive; letter-spacing:.03em; font-size:1.1rem; color:var(--gold);
-    margin-bottom:8px;
-  }
-  .nc-row{
-    display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap;
-    padding:8px 0; border-top:1px solid rgba(243,239,230,0.1); cursor:pointer;
-  }
-  .nc-row:first-of-type{ border-top:none; padding-top:0; }
-  .nc-row:hover .nc-name{ color:var(--gold); }
-  .nc-name{ font-family:'Cormorant Garamond',serif; font-size:1rem; color:rgba(243,239,230,0.92); transition:color .15s; }
-  .nc-status{ font-family:'DM Mono',monospace; font-size:.78rem; color:rgba(243,239,230,0.7); text-align:right; }
-  .nc-status b{ color:#e8917a; font-weight:500; }
-  .nc-more{ margin-top:10px; font-family:'DM Mono',monospace; font-size:.74rem; color:rgba(243,239,230,0.55); }
+  /* "Almost There" (a top-of-page text list of the closest-to-complete
+     collections) was replaced with an on-card signal instead — see
+     .almost-ribbon / .comic.is-almost-complete below. Confirmed via user
+     feedback: after pasting a wallet address, a wall of "missing rarity"
+     text before the shelf even renders got in the way of just wanting to
+     see the covers; a second color of card highlight (cyan, one step
+     below the gold "Complete Set" treatment) surfaces the same
+     "what to look at next" info without any text block. */
 
   .comic-rarity{
     display:inline-block; font-family:'DM Mono',monospace; font-size:.85rem; letter-spacing:.06em; text-transform:uppercase;
@@ -361,6 +343,20 @@
   .comic.is-complete .cover{ box-shadow:0 0 0 3px var(--gold), 0 6px 16px rgba(0,0,0,0.5); }
   .comic.is-complete:hover .cover{ box-shadow:0 0 0 3px var(--gold), 0 16px 32px rgba(0,0,0,0.6); }
 
+  /* One rarity tier short of a Complete Set — same ribbon placement/shape
+     as .complete-ribbon, cyan instead of gold so the two are never
+     confused at a glance. Mutually exclusive with is-complete (a
+     collection is exactly one or the other, never both — see
+     collectionCardHtml/updateCompleteBadgeForCard). */
+  .almost-ribbon{
+    position:absolute; bottom:-10px; left:-10px; transform:rotate(-5deg); z-index:1;
+    background:var(--cyan); color:var(--wood-dark); font-family:'Bangers',cursive; letter-spacing:.02em;
+    font-size:.78rem; padding:4px 10px; border-radius:2px;
+    box-shadow:0 3px 6px rgba(0,0,0,0.4); white-space:nowrap;
+  }
+  .comic.is-almost-complete .cover{ box-shadow:0 0 0 3px var(--cyan), 0 6px 16px rgba(0,0,0,0.5); }
+  .comic.is-almost-complete:hover .cover{ box-shadow:0 0 0 3px var(--cyan), 0 16px 32px rgba(0,0,0,0.6); }
+
   .comic .caption{ margin-top:14px; text-align:center; }
   .comic .caption .name{
     font-family:'Cormorant Garamond',serif; font-size:1.05rem; line-height:1.25; color:rgba(243,239,230,0.98);
@@ -399,9 +395,7 @@
     }
     .collector-summary{ margin-left:18px; margin-right:18px; flex-wrap:wrap; }
     .stat{ min-width:44%; }
-    .value-note, .near-complete{ margin-left:18px; margin-right:18px; }
-    .nc-row{ flex-direction:column; gap:2px; }
-    .nc-status{ text-align:left; }
+    .value-note{ margin-left:18px; margin-right:18px; }
     .shelf{ padding-left:18px; padding-right:18px; gap:22px 12px; justify-content:space-between; }
     /* Exactly 2 columns, computed rather than approximated with vw — a
        vw-based guess (e.g. 44vw) plus the shelf's own 18px side padding
@@ -447,11 +441,6 @@
 
 <div class="flex-card-row" id="flex-card-row" style="display:none">
   <button class="flex-card-btn" id="flex-card-btn">Share a Complete Set &#9733;</button>
-</div>
-
-<div class="near-complete" id="near-complete" style="display:none">
-  <div class="nc-heading">Almost There</div>
-  <div id="near-complete-list"></div>
 </div>
 
 <div class="controls-row" id="controls-row" style="display:none">
@@ -549,8 +538,6 @@ const statTotalEl = document.getElementById('stat-total');
 const statCollectionsEl = document.getElementById('stat-collections');
 const statCompleteEl = document.getElementById('stat-complete');
 const statValueEl = document.getElementById('stat-value');
-const nearCompleteEl = document.getElementById('near-complete');
-const nearCompleteListEl = document.getElementById('near-complete-list');
 const walletInputEl = document.getElementById('wallet-input');
 const loadBtnEl = document.getElementById('load-btn');
 const controlsRowEl = document.getElementById('controls-row');
@@ -707,7 +694,6 @@ async function loadWallet(address){
   valueNoteEl.style.display = 'none';
   statValueEl.textContent = '…';
   statCompleteEl.textContent = '…';
-  nearCompleteEl.style.display = 'none';
   controlsRowEl.style.display = 'none';
   flexCardRowEl.style.display = 'none';
   sortMode = 'default';
@@ -852,7 +838,6 @@ async function loadWallet(address){
     done += batch.length;
     setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Checking ${done}/${groupKeys.length}…`);
     statCompleteEl.textContent = countCompleteSets();
-    renderNearCompleteSets();
     updatePortfolioValue();
     updateFlexCardAvailability();
     if(liveCallFlags.some(Boolean)) await sleep(LOOKUP_PACE_MS);
@@ -1013,14 +998,17 @@ function collectionCardHtml(key){
   // computeMissingRarities() only returns a definite answer once
   // g.knownRarities has resolved (undefined/null both mean "not known yet
   // or not checkable"), so a freshly-rendered card before that starts
-  // with the ribbon hidden — updateCompleteBadgeForCard() flips it on in
-  // place once the eager loop reaches this collection, same pattern as
-  // the price tag.
-  const isComplete = computeMissingRarities(key)?.length === 0;
+  // with both ribbons hidden — updateCompleteBadgeForCard() flips the
+  // right one on in place once the eager loop reaches this collection,
+  // same pattern as the price tag.
+  const missingCount = computeMissingRarities(key)?.length;
+  const isComplete = missingCount === 0;
+  const isAlmost = missingCount === 1;
   return `
-    <div class="comic${isComplete ? ' is-complete' : ''}" style="--tilt:${tilt}" role="button" tabindex="0" data-card-id="${esc(key)}">
+    <div class="comic${isComplete ? ' is-complete' : ''}${isAlmost ? ' is-almost-complete' : ''}" style="--tilt:${tilt}" role="button" tabindex="0" data-card-id="${esc(key)}">
       <div class="cover-wrap">
         <div class="complete-ribbon" data-complete-badge style="display:${isComplete ? 'block' : 'none'}">Complete Set</div>
+        <div class="almost-ribbon" data-almost-badge style="display:${isAlmost ? 'block' : 'none'}">1 Away</div>
         ${image ? `<img class="cover" src="${esc(image)}" loading="lazy" data-tried-idx="0" onerror="handleShelfImgError(this)">` : `<div class="no-preview">No preview available</div>`}
         ${totalCount > 1 ? `<div class="qty-sticker">&times;${totalCount}</div>` : ''}
         ${priceTagHtmlFor(g.floor)}
@@ -1111,26 +1099,31 @@ function handleTileImgError(imgEl){
 }
 
 // Same patch-in-place approach as updatePriceForCard — toggles the
-// ribbon and the card's glow without touching the cover <img>. Reads
+// ribbon(s) and the card's glow without touching the cover <img>. Reads
 // computeMissingRarities() (defined below, used the same way inside the
-// collection panel) so "complete" means exactly the same thing in both
-// places: every rarity tier that actually exists in this collection is
-// represented somewhere in what's owned.
+// collection panel) so "complete"/"one away" mean exactly the same thing
+// here as they do in that panel. A collection is at most one of
+// is-complete / is-almost-complete — never both — since missing.length
+// can't be 0 and 1 at once.
 function updateCompleteBadgeForCard(key){
   const card = shelfEl.querySelector(`[data-card-id="${CSS.escape(key)}"]`);
   if(!card) return;
-  const badgeEl = card.querySelector('[data-complete-badge]');
-  if(!badgeEl) return;
-  const isComplete = computeMissingRarities(key)?.length === 0;
-  badgeEl.style.display = isComplete ? 'block' : 'none';
+  const completeBadgeEl = card.querySelector('[data-complete-badge]');
+  const almostBadgeEl = card.querySelector('[data-almost-badge]');
+  const missingCount = computeMissingRarities(key)?.length;
+  const isComplete = missingCount === 0;
+  const isAlmost = missingCount === 1;
+  if(completeBadgeEl) completeBadgeEl.style.display = isComplete ? 'block' : 'none';
+  if(almostBadgeEl) almostBadgeEl.style.display = isAlmost ? 'block' : 'none';
   card.classList.toggle('is-complete', isComplete);
+  card.classList.toggle('is-almost-complete', isAlmost);
 }
 
 // Recomputed fresh from allGroups each call rather than tracked
 // incrementally — cheap even for a large wallet (tens, not thousands, of
-// collections), and it means both the stat count and the "Almost There"
-// list always agree with what computeMissingRarities() would say if you
-// opened that collection's own panel right now.
+// collections), and it means the stat count always agrees with what
+// computeMissingRarities() would say if you opened that collection's own
+// panel right now.
 function countCompleteSets(){
   let n = 0;
   for(const key of Object.keys(allGroups)){
@@ -1138,45 +1131,6 @@ function countCompleteSets(){
   }
   return n;
 }
-
-const NEAR_COMPLETE_DISPLAY_CAP = 5;
-
-function computeNearCompleteSets(){
-  const rows = [];
-  for(const key of Object.keys(allGroups)){
-    const missing = computeMissingRarities(key);
-    if(Array.isArray(missing) && missing.length > 0){
-      rows.push({ key, name: allGroups[key].name, missing });
-    }
-  }
-  rows.sort((a, b) => a.missing.length - b.missing.length);
-  return rows;
-}
-
-// Re-rendered wholesale each time (not patched in place) — the whole
-// point is showing the CLOSEST-to-complete sets first, so as more
-// collections' rarity checks resolve, ranking can shift and the list
-// needs to be rebuilt, not just appended to.
-function renderNearCompleteSets(){
-  const rows = computeNearCompleteSets();
-  if(rows.length === 0){
-    nearCompleteEl.style.display = 'none';
-    return;
-  }
-  nearCompleteEl.style.display = 'block';
-  const shown = rows.slice(0, NEAR_COMPLETE_DISPLAY_CAP);
-  nearCompleteListEl.innerHTML = shown.map(r => `
-    <div class="nc-row" data-open-key="${esc(r.key)}">
-      <div class="nc-name">${esc(r.name)}</div>
-      <div class="nc-status">Missing ${r.missing.length}: <b>${r.missing.map(esc).join(', ')}</b></div>
-    </div>
-  `).join('') + (rows.length > shown.length ? `<div class="nc-more">+ ${rows.length - shown.length} more collection${rows.length - shown.length !== 1 ? 's' : ''} missing at least one rarity</div>` : '');
-}
-nearCompleteListEl.addEventListener('click', (e) => {
-  const row = e.target.closest('[data-open-key]');
-  if(!row) return;
-  openCollectionModal(row.dataset.openKey);
-});
 
 // Estimated portfolio value — sum of each held asset's own collection
 // floor price. Called after every price resolves during the loop above,
