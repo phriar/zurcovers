@@ -170,6 +170,28 @@
 </head>
 <body>
 <div id="grain"></div>
+<script>
+// Lightweight, anonymous page-view tracking — see zurcovers-proxy-worker.js's
+// /v2/page-view and metrics.html. visitorId is a random id cached in
+// localStorage purely so metrics.html can show a rough unique-visitor
+// estimate alongside raw view counts — never a wallet address, never sent
+// anywhere but our own Worker. Fire-and-forget: a blocked/offline beacon
+// is swallowed and never affects the page itself.
+(function(){
+  try{
+    var VID_KEY = 'zc_visitor_id';
+    var vid = localStorage.getItem(VID_KEY);
+    if(!vid){
+      vid = (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(16) + Math.random().toString(16).slice(2))).replace(/-/g,'').slice(0,8);
+      localStorage.setItem(VID_KEY, vid);
+    }
+    fetch('https://zurcovers-proxy.stholt.workers.dev/v2/page-view', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ page:'quests', visitorId: vid })
+    }).catch(function(){});
+  }catch(e){}
+})();
+</script>
 
 <header>
   <div class="brand"><a href="index.html">zurcovers</a> / Quests</div>
@@ -218,6 +240,24 @@ const ME_PROXY_BASE = "https://zurcovers-proxy.stholt.workers.dev";
 const ME_BASE = ME_PROXY_BASE + "/v2";
 const WALLET_KEY = 'zurcovers_wallet'; // shared across every zurcovers page — a wallet pasted anywhere else on the site is already here
 const SOL_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
+// Fire-and-forget beacon behind every "find one on ZurVault" outbound
+// link — see the Worker's /v2/zurvault-click and metrics.html. Never
+// awaited/blocking: these links are all target="_blank", so there's no
+// navigation to race, and a failed/offline beacon should never be
+// visible to the visitor. Delegated to the document since requirement
+// rows are (re)rendered wholesale each time a wallet is checked.
+function trackZurvaultClick(source){
+  try{
+    fetch(`${ME_BASE}/zurvault-click`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source })
+    }).catch(()=>{});
+  }catch(e){}
+}
+document.addEventListener('click', (e) => {
+  if(e.target.closest('[data-zv-hunt]')) trackZurvaultClick('quests');
+});
 
 // Same junk filter as MyComics.html — a wallet holding these shouldn't
 // make an unrelated quest look checkable against them.
@@ -367,7 +407,7 @@ function requirementGroupHtml(group, assets){
     const zvUrl = item.symbol ? `https://zurvault.com/?symbol=${encodeURIComponent(item.symbol)}` : 'https://zurvault.com/';
     const matchText = matched
       ? matches.map(a => esc(a.name)).join(', ')
-      : `not found in this wallet — <a class="req-hunt-link" href="${esc(zvUrl)}" target="_blank" rel="noopener">find one on ZurVault &#8599;</a>`;
+      : `not found in this wallet — <a class="req-hunt-link" href="${esc(zvUrl)}" target="_blank" rel="noopener" data-zv-hunt>find one on ZurVault &#8599;</a>`;
     // Prefer the wallet's own owned copy's actual cover when matched —
     // more trustworthy proof than a reference image, and doubles as
     // another way to catch a false positive (wrong-looking cover next to

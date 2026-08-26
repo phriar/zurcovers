@@ -205,6 +205,28 @@
 </head>
 <body>
 <div id="grain"></div>
+<script>
+// Lightweight, anonymous page-view tracking — see zurcovers-proxy-worker.js's
+// /v2/page-view and metrics.html. visitorId is a random id cached in
+// localStorage purely so metrics.html can show a rough unique-visitor
+// estimate alongside raw view counts — never a wallet address, never sent
+// anywhere but our own Worker. Fire-and-forget: a blocked/offline beacon
+// is swallowed and never affects the page itself.
+(function(){
+  try{
+    var VID_KEY = 'zc_visitor_id';
+    var vid = localStorage.getItem(VID_KEY);
+    if(!vid){
+      vid = (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(16) + Math.random().toString(16).slice(2))).replace(/-/g,'').slice(0,8);
+      localStorage.setItem(VID_KEY, vid);
+    }
+    fetch('https://zurcovers-proxy.stholt.workers.dev/v2/page-view', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ page:'collections', visitorId: vid })
+    }).catch(function(){});
+  }catch(e){}
+})();
+</script>
 
 <header>
   <div class="brand"><a href="index.html">zurcovers</a> / My Collections</div>

@@ -778,6 +778,107 @@ export default {
       });
     }
 
+    // PAGE-VIEW METRICS — backs metrics.html. One KV entry per view, same
+    // "avoid lossy shared-counter increments under concurrent writes"
+    // reasoning as click/gallery-view tracking above. Both the page name
+    // and an anonymous per-browser visitor id live in the KEY itself (not
+    // the value), so /v2/page-views can tally totals, a per-page
+    // breakdown, and a rough unique-visitor estimate using only list()
+    // calls — never a get() per key, which wouldn't scale once there are
+    // thousands of these. visitorId is a random id the frontend generates
+    // once and caches in localStorage (see each page's trackPageView) —
+    // never a wallet address or anything else identifying; this endpoint
+    // only ever sees a page name and that random id.
+    const PAGE_VIEW_TTL_SECONDS = 60 * 60 * 24 * 90; // 90 days, same window as click/gallery-view tracking
+    // activity.html deliberately excluded — CLAUDE.md documents it as
+    // "kept exactly as-is... don't otherwise modify it," so it isn't
+    // instrumented and any hit for it just falls into "other" below.
+    const KNOWN_PAGES = new Set(["index", "MyComics", "wallet", "collections", "slideshow", "quests"]);
+
+    if (url.pathname === "/v2/page-view" && request.method === "POST") {
+      let payload;
+      try {
+        payload = JSON.parse(await request.text());
+      } catch {
+        payload = {};
+      }
+      const page = KNOWN_PAGES.has(payload?.page) ? payload.page : "other";
+      const visitorId = /^[a-f0-9]{8,32}$/.test(payload?.visitorId || "") ? payload.visitorId.slice(0, 8) : "unknown0";
+      const key = `pageview:${page}:${Date.now()}-${visitorId}-${crypto.randomUUID().slice(0, 4)}`;
+      ctx.waitUntil(env.ZURCOVERS_CACHE.put(key, "1", { expirationTtl: PAGE_VIEW_TTL_SECONDS }));
+      return new Response(null, { status: 204, headers: corsHeaders });
+    }
+
+    if (url.pathname === "/v2/page-views" && request.method === "GET") {
+      const byPage = {};
+      const visitors = new Set();
+      let total = 0;
+      let cursor;
+      do {
+        const page = await env.ZURCOVERS_CACHE.list({ prefix: "pageview:", cursor, limit: 1000 });
+        for (const k of page.keys) {
+          // key shape: pageview:{page}:{timestamp}-{visitorId}-{rand}
+          const parts = k.name.split(":");
+          const pageName = parts[1] || "other";
+          byPage[pageName] = (byPage[pageName] || 0) + 1;
+          total++;
+          const tail = (parts[2] || "").split("-");
+          const visitorId = tail[1];
+          if (visitorId) visitors.add(visitorId);
+        }
+        cursor = page.list_complete ? undefined : page.cursor;
+      } while (cursor);
+      return new Response(
+        JSON.stringify({ total, byPage, uniqueVisitorsEstimate: visitors.size, retentionDays: PAGE_VIEW_TTL_SECONDS / 86400 }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" } }
+      );
+    }
+
+    // ZURVAULT HUNT-CLICK METRICS — also backs metrics.html. Every "See
+    // what's for sale on ZurVault" / "find one on ZurVault" outbound link
+    // (MyComics.html's missing-rarities panel, quests.html's unmet
+    // requirement rows) fires one of these right before navigating —
+    // target="_blank" on all of them, so the beacon fetch has no need to
+    // race the navigation. `source` is just the page that sent the click
+    // (e.g. "MyComics"), not the specific collection — enough to answer
+    // "how often does zurcovers send someone to ZurVault to go complete a
+    // collection" without logging which collection someone was hunting.
+    const ZV_CLICK_TTL_SECONDS = 60 * 60 * 24 * 90;
+
+    if (url.pathname === "/v2/zurvault-click" && request.method === "POST") {
+      let payload;
+      try {
+        payload = JSON.parse(await request.text());
+      } catch {
+        payload = {};
+      }
+      const sanitize = (s, fallback) => String(s || "").slice(0, 40).replace(/[^a-zA-Z0-9_-]/g, "_") || fallback;
+      const source = sanitize(payload?.source, "unknown");
+      const key = `zvclick:${source}:${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+      ctx.waitUntil(env.ZURCOVERS_CACHE.put(key, "1", { expirationTtl: ZV_CLICK_TTL_SECONDS }));
+      return new Response(null, { status: 204, headers: corsHeaders });
+    }
+
+    if (url.pathname === "/v2/zurvault-clicks" && request.method === "GET") {
+      const bySource = {};
+      let total = 0;
+      let cursor;
+      do {
+        const page = await env.ZURCOVERS_CACHE.list({ prefix: "zvclick:", cursor, limit: 1000 });
+        for (const k of page.keys) {
+          const parts = k.name.split(":");
+          const source = parts[1] || "unknown";
+          bySource[source] = (bySource[source] || 0) + 1;
+          total++;
+        }
+        cursor = page.list_complete ? undefined : page.cursor;
+      } while (cursor);
+      return new Response(JSON.stringify({ total, bySource, retentionDays: ZV_CLICK_TTL_SECONDS / 86400 }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
+
     // Generic pass-through proxy + edge cache, same as ZurVault's Worker.
     // wallet.html uses this for /v2/tokens/{mint} (resolve a held mint's
     // collection symbol) and /v2/collections/{symbol}/stats (that
