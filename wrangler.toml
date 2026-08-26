@@ -1,0 +1,25 @@
+# Wrangler config for zurcovers-proxy — added 2026-08 after Cloudflare
+# removed the classic "paste code, click Deploy" dashboard editor for this
+# worker, leaving only a static-assets uploader (wrong tool — that path
+# deploys .html/.js as a static site instead of running this file, the
+# exact failure mode from the 2026-08-25 Git-integration incident, see
+# CLAUDE.md). `wrangler deploy` is now the supported path.
+#
+# Deliberately no [assets] block — that's what turns this into a static
+# site deploy instead of a Worker script deploy.
+#
+# HELIUS_API_KEY is a secret, not set here. Confirmed live 2026-08-26:
+# despite Cloudflare's general docs, a `wrangler deploy` from this config
+# did NOT preserve it — re-verify /v2/wallet-assets after every deploy,
+# not just the first. See CLAUDE.md's 2026-08-26 incident note for the
+# full story, including why `wrangler secret put HELIUS_API_KEY`'s
+# "Success!" message alone isn't proof it worked.
+
+name = "zurcovers-proxy"
+main = "zurcovers-proxy-worker.js"
+compatibility_date = "2024-01-01"
+account_id = "775ce8d153336049980ef5f5c5c78256"
+
+[[kv_namespaces]]
+binding = "ZURCOVERS_CACHE"
+id = "d482c757cafd4fd1a4c8d176be8f0af2"

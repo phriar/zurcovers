@@ -66,15 +66,26 @@ The mental model: *ZurVault helps you find the books. ZurCovers lets you enjoy t
 
 ## Deploying the Worker
 
-Manual, dashboard-based deploy — there is no CI/CD wiring this up:
+**As of 2026-08-26, deploy via Wrangler CLI** (`npx wrangler deploy` from the repo root) — see the incident below for why the old dashboard paste-and-deploy editor no longer works for this Worker. `wrangler.toml` is checked into this repo and already points `main` at `zurcovers-proxy-worker.js` and binds the real `ZURCOVERS_CACHE` KV namespace (id `d482c757cafd4fd1a4c8d176be8f0af2`) — no `[assets]` block, so this always deploys as a genuine Worker script, never a static site.
 
-1. dash.cloudflare.com → Workers & Pages → Create → Worker, name it `zurcovers-proxy`.
-2. Paste the full contents of `zurcovers-proxy-worker.js`, Deploy.
-3. Create a KV namespace named exactly `ZURCOVERS_CACHE`, bind it to the Worker under Worker Settings → Variables → KV Namespace Bindings (variable name must match exactly — the code references it by that name).
-4. Add the `HELIUS_API_KEY` secret (Worker Settings → Variables → Secrets, or `wrangler secret put HELIUS_API_KEY`) — required for `/v2/wallet-assets`; without it that endpoint 502s.
-5. Update `ME_PROXY_BASE` in `wallet.html` and `slideshow.html` to the real `*.workers.dev` URL if deploying under a different account/subdomain than `zurcovers-proxy.stholt.workers.dev`.
+1. `npx wrangler login` once per machine (OAuth via browser).
+2. `npx wrangler deploy --dry-run` first to sanity-check what it's about to upload (should report ~24 KiB and the `ZURCOVERS_CACHE` KV binding, nothing about static assets).
+3. `npx wrangler deploy` for real.
+4. **`wrangler deploy` does NOT preserve the `HELIUS_API_KEY` secret** — confirmed live 2026-08-26, see incident below. Always re-verify `/v2/wallet-assets` and `/v2/onchain-collections/{key}/rarities` (both call Helius) with a real curl after every deploy; a `Helius HTTP 401` in the response body means the secret needs resetting, `/v2/collections/{symbol}/stats` and the `/symbol` endpoint staying healthy does NOT mean the secret survived, since neither of those touches Helius.
+5. To (re)set that secret: `wrangler secret put HELIUS_API_KEY` is supposed to prompt for hidden input, but confirmed live 2026-08-26 that the prompt can silently accept empty input in some terminal environments — the command reports success either way, so **always verify with a live curl afterward**, don't trust the "Success!" message alone. If it doesn't work, set it directly instead: dash.cloudflare.com → Workers & Pages → `zurcovers-proxy` → Settings → Variables → add `HELIUS_API_KEY` as a Secret. Never pass the key value as a CLI argument (`wrangler secret put HELIUS_API_KEY <value>`) — wrangler rejects that syntax anyway, but the value would land in shell history and wrangler's own log file if it didn't.
+6. Update `ME_PROXY_BASE` in `wallet.html` and `slideshow.html` to the real `*.workers.dev` URL if deploying under a different account/subdomain than `zurcovers-proxy.stholt.workers.dev`.
 
-**Every Worker code change needs a manual redeploy** — pushing to GitHub does not touch the live Worker.
+**Pushing to GitHub still does not touch the live Worker** — `wrangler deploy` (or the dashboard, where it still works) is the only thing that does.
+
+### Incident (2026-08-26): dashboard code editor gone, secret wiped by first CLI deploy, and a leaked key
+
+Tried the documented dashboard paste-and-deploy flow to push the metrics endpoints (see `metrics.html` / the "Usage metrics" note above) and found Cloudflare had replaced `zurcovers-proxy`'s "Edit code" button with a **static-assets uploader** ("Upload static files to update your Worker," recommending `wrangler deploy` for "all other applications"). Uploading `zurcovers-proxy-worker.js` there would have repeated the exact 2026-08-25 Git-integration failure — served as a static file, not run as the Worker. Caught before uploading anything.
+
+Switched to `wrangler deploy`, which needed `wrangler.toml` (now checked in — see above) and the real `ZURCOVERS_CACHE` namespace id (found via `wrangler kv namespace list`, not created fresh, to keep the existing 30-day cached symbol/floor/rarity data rather than starting cold). The deploy itself worked, but **`/v2/wallet-assets` immediately started 502ing with `Helius HTTP 401`** — the `HELIUS_API_KEY` secret didn't survive the CLI deploy, even though CLAUDE.md's own prior assumption (and Cloudflare's general docs) say secrets persist independently of code deploys. Confirmed live: `/v2/collections/{symbol}/stats` (no Helius call) kept returning 200 the whole time, which is exactly why step 4 above says that's not a valid health check for the secret.
+
+Re-setting it via `wrangler secret put HELIUS_API_KEY` (interactive prompt) reported success twice but didn't actually fix the 401 either time — the hidden-input prompt silently accepted empty input in this environment, so both attempts set the secret to nothing. What actually worked: setting `HELIUS_API_KEY` directly in the dashboard (Settings → Variables → Secrets). **Also**, mid-troubleshooting, someone ran `wrangler secret put HELIUS_API_KEY <value>` with the key as a CLI argument — wrangler rejected the syntax, but not before the raw key had already printed to the terminal and landed in wrangler's own log file (`~/Library/Preferences/.wrangler/logs/`). That key was treated as compromised and rotated at dashboard.helius.dev, same as CLAUDE.md already prescribes for ZurVault's old exposed key.
+
+**Net effect for next time**: use `wrangler deploy` (not the dashboard uploader), always re-verify the Helius-backed endpoints with a live curl after *every* deploy (not just the first), and never pass a secret value as a CLI argument or trust a `wrangler secret put` success message without a live check behind it.
 
 ### Incident (2026-08-25): don't reconnect Git deploy without a wrangler.toml
 
