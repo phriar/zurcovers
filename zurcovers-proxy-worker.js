@@ -710,16 +710,6 @@ export default {
 
     const url = new URL(request.url);
 
-    // Temporary — added solely to verify whether Cloudflare's Git
-    // integration actually auto-deploys this file on push to main, since
-    // this repo's docs (CLAUDE.md) still describe the old manual
-    // paste-into-dashboard process. Remove once confirmed either way.
-    if (url.pathname === "/v2/__deploy-check") {
-      return new Response(JSON.stringify({ ok: true, marker: "deploy-check-x7q2p9", deployedVia: "git-push-test" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
     if (url.pathname === "/v2/wallet-assets") {
       return handleWalletAssets(request, env, ctx, corsHeaders);
     }
