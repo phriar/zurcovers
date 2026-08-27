@@ -188,7 +188,7 @@
      round-trip). Deliberately client-side-only V1: no OG-image endpoint,
      no server rendering — the visitor gets a PNG to attach manually when
      they post, not a link that auto-unfurls. */
-  .flex-card-row{ position:relative; z-index:1; margin:0 32px 20px; display:flex; }
+  .flex-card-row{ position:relative; z-index:1; margin:0 32px 20px; display:flex; gap:12px; flex-wrap:wrap; }
   .flex-card-btn{
     background:transparent; border:2px solid var(--gold); color:var(--gold);
     font-family:'Bangers',cursive; font-size:1rem; letter-spacing:.04em; text-transform:uppercase;
@@ -196,6 +196,33 @@
   }
   .flex-card-btn:hover:not(:disabled){ background:rgba(232,178,77,0.12); }
   .flex-card-btn:disabled{ opacity:.5; cursor:default; }
+  /* Spares — a second CTA in the same row, cyan instead of gold so it
+     never reads as "another way to do the same thing" as Share a
+     Complete Set. Independently shown/hidden (see updateSparesAvailability)
+     since a wallet can have spares with zero complete sets or vice versa. */
+  .flex-card-btn.spares-btn{ border-color:var(--cyan); color:var(--cyan); }
+  .flex-card-btn.spares-btn:hover:not(:disabled){ background:rgba(45,230,208,0.1); }
+
+  .spares-summary{
+    margin-top:4px; font-family:'DM Mono',monospace; font-size:.88rem; letter-spacing:.02em;
+    color:rgba(243,239,230,0.85); line-height:1.6;
+  }
+  .spare-list{ margin-top:18px; display:flex; flex-direction:column; gap:10px; }
+  .spare-row{
+    display:flex; align-items:center; gap:14px; padding:10px 12px; border-radius:4px;
+    background:rgba(0,0,0,0.15); border:1px solid rgba(243,239,230,0.08);
+  }
+  .spare-cover{
+    width:52px; aspect-ratio:2/3; object-fit:cover; border-radius:2px;
+    box-shadow:0 3px 8px rgba(0,0,0,0.4); flex-shrink:0; background:rgba(255,255,255,0.05);
+  }
+  .spare-info{ flex:1; min-width:0; }
+  .spare-name{ font-family:'Cormorant Garamond',serif; font-size:1.05rem; color:rgba(243,239,230,0.97); }
+  .spare-meta{ margin-top:3px; font-family:'DM Mono',monospace; font-size:.82rem; color:rgba(243,239,230,0.75); }
+  .spare-meta b{ color:#e8917a; font-weight:500; }
+  .spare-value{ text-align:right; flex-shrink:0; }
+  .spare-value-amt{ font-family:'DM Mono',monospace; font-size:.92rem; color:var(--gold); white-space:nowrap; }
+  .spare-value-amt.unavailable{ color:rgba(243,239,230,0.5); }
 
   .flex-card-modal{
     position:fixed; inset:0; z-index:60; display:none; align-items:center; justify-content:center;
@@ -462,7 +489,8 @@
 <div class="value-note" id="value-note" style="display:none">Estimated using each comic's current Magic Eden collection floor &mdash; the going market rate for that print, not necessarily what your specific serial would sell for.</div>
 
 <div class="flex-card-row" id="flex-card-row" style="display:none">
-  <button class="flex-card-btn" id="flex-card-btn">Share a Complete Set &#9733;</button>
+  <button class="flex-card-btn" id="flex-card-btn" style="display:none">Share a Complete Set &#9733;</button>
+  <button class="flex-card-btn spares-btn" id="spares-btn" style="display:none">View Spares</button>
 </div>
 
 <div class="controls-row" id="controls-row" style="display:none">
@@ -486,6 +514,16 @@
     <div class="copies-modal-sub" id="copies-modal-sub"></div>
     <div class="copies-modal-missing" id="copies-modal-missing"></div>
     <div class="copies-modal-grid" id="copies-modal-grid"></div>
+  </div>
+</div>
+
+<div class="copies-modal" id="spares-modal" style="display:none">
+  <div class="copies-modal-backdrop" id="spares-modal-backdrop"></div>
+  <div class="copies-modal-panel" role="dialog" aria-modal="true" aria-labelledby="spares-modal-title">
+    <button class="copies-modal-close" id="spares-modal-close" aria-label="Close">&times;</button>
+    <div class="copies-modal-title" id="spares-modal-title">Spares</div>
+    <div class="spares-summary" id="spares-summary"></div>
+    <div class="spare-list" id="spare-list"></div>
   </div>
 </div>
 
@@ -568,6 +606,12 @@ const sortPriceBtn = document.getElementById('sort-price');
 const sortCompleteBtn = document.getElementById('sort-complete');
 const flexCardRowEl = document.getElementById('flex-card-row');
 const flexCardBtn = document.getElementById('flex-card-btn');
+const sparesBtn = document.getElementById('spares-btn');
+const sparesModalEl = document.getElementById('spares-modal');
+const sparesModalBackdropEl = document.getElementById('spares-modal-backdrop');
+const sparesModalCloseEl = document.getElementById('spares-modal-close');
+const sparesSummaryEl = document.getElementById('spares-summary');
+const spareListEl = document.getElementById('spare-list');
 const flexCardModalEl = document.getElementById('flex-card-modal');
 const flexCardDownloadBtn = document.getElementById('flex-card-download');
 const flexCardShareBtn = document.getElementById('flex-card-share');
@@ -732,6 +776,8 @@ async function loadWallet(address){
   statCompleteEl.textContent = '…';
   controlsRowEl.style.display = 'none';
   flexCardRowEl.style.display = 'none';
+  flexCardBtn.style.display = 'none';
+  sparesBtn.style.display = 'none';
   sortMode = 'default';
   sortDefaultBtn.classList.add('active');
   sortPriceBtn.classList.remove('active');
@@ -770,6 +816,7 @@ async function loadWallet(address){
   render(); // one full paint, price tags start as "…" — resolved prices patch in place below, never a second full re-render
   updateCollectorStats();
   updatePortfolioValue();
+  updateSparesAvailability(); // spares need no async data at all — title/rarity come straight off the raw assets, so this can appear immediately rather than waiting on the eager floor/rarity loop below
   // Sort unlocks immediately rather than waiting for the whole eager loop
   // below to finish — with a wallet spanning many collections, that wait
   // can run into a minute or more. "Highest Floor First" works correctly
@@ -1475,7 +1522,7 @@ document.getElementById('copies-modal-missing').addEventListener('click', (e) =>
   if(huntLink) trackZurvaultClick('MyComics');
 });
 document.addEventListener('keydown', (e) => {
-  if(e.key === 'Escape') closeCopiesModal();
+  if(e.key === 'Escape'){ closeCopiesModal(); closeSparesModal(); }
 });
 // Delegated (not bound per-card) so a click on any card works no matter
 // how many times the shelf has been re-rendered since — render() rebuilds
@@ -1662,15 +1709,114 @@ function defaultShareTextForSet(key){
   return `Complete set: ${g.name} — all ${tiers.length} rarities (${totalCopies} copies)${floorText}. zurcovers.com`;
 }
 
-// Shows/hides the top-level entry point based on whether the wallet has
-// ANY complete set yet — called from the eager loading loop as each
-// collection's rarity check resolves (so this appears mid-load, not just
-// once everything's done) and from ensureKnownRarities (the eager loop
-// skips single-tier collections, so an on-demand check from opening that
-// collection's own panel is the only way some sets ever get found).
-function updateFlexCardAvailability(){
-  flexCardRowEl.style.display = listCompleteSetKeys().length > 0 ? 'flex' : 'none';
+// The row itself is only shown when at least one of its two buttons has
+// something to offer — each button's own display is owned by
+// updateFlexCardAvailability/updateSparesAvailability below, this just
+// keeps the shared row from taking up margin/space when both are hidden.
+function updateActionRowVisibility(){
+  const showFlex = flexCardBtn.style.display !== 'none';
+  const showSpares = sparesBtn.style.display !== 'none';
+  flexCardRowEl.style.display = (showFlex || showSpares) ? 'flex' : 'none';
 }
+
+// Shows/hides the Share-a-Complete-Set entry point based on whether the
+// wallet has ANY complete set yet — called from the eager loading loop as
+// each collection's rarity check resolves (so this appears mid-load, not
+// just once everything's done) and from ensureKnownRarities (the eager
+// loop skips single-tier collections, so an on-demand check from opening
+// that collection's own panel is the only way some sets ever get found).
+function updateFlexCardAvailability(){
+  flexCardBtn.style.display = listCompleteSetKeys().length > 0 ? 'inline-block' : 'none';
+  updateActionRowVisibility();
+}
+
+// A "spare" is any (title, rarity) print owned in more than one copy —
+// the exact same grouping groupByTitleAndRarity already uses to build the
+// collection panel's own tiles, just scanned across every collection
+// instead of one. Needs nothing async: title/rarity come straight off the
+// raw asset data, so spares are knowable the moment a wallet loads, well
+// before the eager per-collection floor/rarity loop finishes — see
+// loadWallet, which calls updateSparesAvailability right after allGroups
+// is populated rather than waiting on that loop.
+//
+// Valued at that collection's overall floor (the same single-cheapest-
+// item approximation the collector-summary's Est. Floor Value already
+// uses) rather than a per-rarity listing price — fetching per-rarity
+// listings for every spare stack in a large wallet would mean dozens of
+// extra live Magic Eden calls just to open this view, and g.floor is
+// already sitting there from the main load at zero extra cost. Sorted by
+// estimated spare value (known values first) so the biggest sell
+// opportunity leads, same ordering philosophy as "Highest Floor First".
+function computeSpareStacks(){
+  const stacks = [];
+  for(const key of Object.keys(allGroups)){
+    const g = allGroups[key];
+    for(const group of groupByTitleAndRarity(g.items)){
+      if(group.items.length < 2) continue;
+      const spareCount = group.items.length - 1;
+      const floor = typeof g.floor === 'number' ? g.floor : null;
+      stacks.push({
+        collectionName: g.name,
+        title: group.title,
+        rarity: group.rarity,
+        count: group.items.length,
+        spareCount,
+        value: floor !== null ? floor * spareCount : null,
+        image: candidateImagesFor(group.items)[0] || '',
+        mint: group.items[0].mint,
+      });
+    }
+  }
+  stacks.sort((a, b) => (b.value ?? -1) - (a.value ?? -1));
+  return stacks;
+}
+
+function updateSparesAvailability(){
+  sparesBtn.style.display = computeSpareStacks().length > 0 ? 'inline-block' : 'none';
+  updateActionRowVisibility();
+}
+
+// Re-rendered wholesale each time the modal opens rather than tracked
+// incrementally — same reasoning as the old "Almost There" list this
+// replaced: cheap even for a large wallet, and it means the list always
+// agrees with whatever allGroups holds right now (including g.floor
+// values that kept resolving after the button first appeared).
+function renderSparesModal(){
+  const stacks = computeSpareStacks();
+  const totalSpares = stacks.reduce((n, s) => n + s.spareCount, 0);
+  const knownValue = stacks.reduce((sum, s) => sum + (s.value ?? 0), 0);
+  const anyUnpriced = stacks.some(s => s.value === null);
+  sparesSummaryEl.textContent = stacks.length === 0
+    ? "Every comic in this wallet is a single copy — no spares to show."
+    : `${totalSpares} spare cop${totalSpares !== 1 ? 'ies' : 'y'} across ${stacks.length} print${stacks.length !== 1 ? 's' : ''} · est. ${knownValue.toFixed(3)} SOL${anyUnpriced ? ' (some still pricing, not included)' : ''}`;
+  spareListEl.innerHTML = stacks.map(s => `
+    <div class="spare-row">
+      ${s.image ? `<img class="spare-cover" src="${esc(s.image)}" loading="lazy" onerror="this.style.opacity=0.2">` : `<div class="spare-cover"></div>`}
+      <div class="spare-info">
+        <div class="spare-name">${esc(s.title)}</div>
+        ${s.rarity ? `<div class="comic-rarity rarity-${esc(s.rarity.toLowerCase())}">${esc(s.rarity)}</div>` : ''}
+        <div class="spare-meta">${esc(s.collectionName)} &middot; own &times;${s.count}, <b>${s.spareCount} spare${s.spareCount !== 1 ? 's' : ''}</b></div>
+      </div>
+      <div class="spare-value">
+        <div class="spare-value-amt${s.value === null ? ' unavailable' : ''}">${s.value === null ? 'no ME data' : s.value.toFixed(3) + ' SOL'}</div>
+        <a class="copy-me-tag" href="${esc(`https://magiceden.io/item-details/${s.mint}`)}" target="_blank" rel="noopener">Sell on Magic Eden &#8599;</a>
+      </div>
+    </div>
+  `).join('');
+}
+
+function openSparesModal(){
+  renderSparesModal();
+  sparesModalEl.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+function closeSparesModal(){
+  sparesModalEl.style.display = 'none';
+  document.body.style.overflow = '';
+}
+sparesBtn.addEventListener('click', openSparesModal);
+sparesModalCloseEl.addEventListener('click', closeSparesModal);
+sparesModalBackdropEl.addEventListener('click', closeSparesModal);
 
 // crossOrigin='anonymous' means a host that doesn't send CORS headers
 // fails to load (onerror) rather than loading a canvas-tainting image —
