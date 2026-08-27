@@ -282,6 +282,24 @@
   .pill:hover:not(:disabled){ color:rgba(243,239,230,0.95); border-color:rgba(232,178,77,0.4); }
   .pill.active{ color:#fff; background:var(--tag-red); border-color:transparent; }
   .pill:disabled{ opacity:0.35; cursor:default; }
+  /* Collection search — a single native input+datalist combo rather than
+     separate free-text and dropdown controls, since a datalist already
+     gives both: type to filter, or click the field to see every
+     collection name as a pickable list. Pushed to the far right of the
+     controls row on wide screens, full-width on its own line once wrapped. */
+  .search-group{ margin-left:auto; display:flex; align-items:center; gap:8px; }
+  .search-input{
+    font-family:'DM Mono',monospace; font-size:.88rem; color:var(--paper);
+    background:rgba(0,0,0,0.35); border:1px solid rgba(243,239,230,0.15); border-radius:20px;
+    padding:6px 14px; min-width:220px; outline:none;
+  }
+  .search-input::placeholder{ color:rgba(243,239,230,0.45); }
+  .search-input:focus{ border-color:var(--gold); }
+  .no-results{
+    position:relative; z-index:1; margin:0 32px 20px; padding:14px 18px;
+    border:1px solid rgba(243,239,230,0.15); border-radius:4px; background:rgba(0,0,0,0.2);
+    font-size:.92rem; color:rgba(243,239,230,0.85); text-align:center;
+  }
 
   #status{ position:relative; z-index:1; padding:16px 32px; font-size:.88rem; letter-spacing:.08em; color:rgba(243,239,230,0.9); text-transform:uppercase; }
   #status.err{ color:#e8917a; }
@@ -423,6 +441,9 @@
     .collector-summary{ margin-left:18px; margin-right:18px; flex-wrap:wrap; }
     .stat{ min-width:44%; }
     .value-note{ margin-left:18px; margin-right:18px; }
+    .no-results{ margin-left:18px; margin-right:18px; }
+    .search-group{ margin-left:0; width:100%; }
+    .search-input{ min-width:0; flex:1; }
     .shelf{ padding-left:18px; padding-right:18px; gap:22px 12px; justify-content:space-between; }
     /* Exactly 2 columns, computed rather than approximated with vw — a
        vw-based guess (e.g. 44vw) plus the shelf's own 18px side padding
@@ -498,10 +519,16 @@
   <button class="pill active" id="sort-default" disabled>Recently Added</button>
   <button class="pill" id="sort-price" disabled>Highest Floor First</button>
   <button class="pill" id="sort-complete" disabled>Complete Sets First</button>
+  <div class="search-group">
+    <span class="control-label">Find</span>
+    <input type="text" class="search-input" id="collection-search" list="collection-list" placeholder="Superman, Batman…" autocomplete="off">
+    <datalist id="collection-list"></datalist>
+  </div>
 </div>
 
 <div id="status"></div>
 <div class="shelf" id="shelf"></div>
+<div class="no-results" id="no-results" style="display:none"></div>
 <div class="caveat" id="caveat" style="display:none">
   Small/unfamiliar "collection" entries in a wallet are often unsolicited airdrop NFTs, not anything you acquired — Magic Eden simply not recognizing one is common and not itself a red flag. Never interact with anything claiming you need to "claim" a reward.
 </div>
@@ -604,6 +631,9 @@ const controlsRowEl = document.getElementById('controls-row');
 const sortDefaultBtn = document.getElementById('sort-default');
 const sortPriceBtn = document.getElementById('sort-price');
 const sortCompleteBtn = document.getElementById('sort-complete');
+const searchInputEl = document.getElementById('collection-search');
+const collectionListEl = document.getElementById('collection-list');
+const noResultsEl = document.getElementById('no-results');
 const flexCardRowEl = document.getElementById('flex-card-row');
 const flexCardBtn = document.getElementById('flex-card-btn');
 const sparesBtn = document.getElementById('spares-btn');
@@ -625,6 +655,7 @@ const flexCardHintEl = document.getElementById('flex-card-hint');
 // reopens) never needs to re-fetch anything already known.
 let allGroups = {};
 let sortMode = 'default'; // 'default' | 'price-desc'
+let searchQuery = ''; // lowercased, matched as a substring of the collection name
 let openModalKey = null; // guards a slow rarity-floors fetch from clobbering a modal the visitor has since closed/reopened on a different collection
 
 const RARITY_ALIASES = { common:'common', core:'common', base:'common', standard:'common', uncommon:'uncommon', rare:'rare', epic:'epic', legendary:'legendary' };
@@ -782,6 +813,9 @@ async function loadWallet(address){
   sortDefaultBtn.classList.add('active');
   sortPriceBtn.classList.remove('active');
   sortCompleteBtn.classList.remove('active');
+  searchQuery = '';
+  searchInputEl.value = '';
+  noResultsEl.style.display = 'none';
   setStatus('Fetching wallet assets…');
 
   let json;
@@ -810,6 +844,13 @@ async function loadWallet(address){
     allGroups[key].items.push(a);
   }
   const groupKeys = Object.keys(allGroups);
+
+  // Datalist options for the search box, so a visitor can either type a
+  // name or click the field to pick from every collection they hold —
+  // available immediately since collection names come straight off the
+  // raw asset list, no floor/rarity lookups needed.
+  const distinctNames = [...new Set(groupKeys.map(key => allGroups[key].name))].sort((a, b) => a.localeCompare(b));
+  collectionListEl.innerHTML = distinctNames.map(name => `<option value="${esc(name)}"></option>`).join('');
 
   setStatus(`${assets.length} NFTs across ${groupKeys.length} collection(s). Looking up floor prices and rarities…`);
   caveatEl.style.display = 'block';
@@ -911,6 +952,7 @@ async function loadWallet(address){
     // are independent DOM updates with no reason to wait on each other.
     updatePriceForCard(key, allGroups[key].floor);
     updateCompleteBadgeForCard(key);
+    if(sparesModalOpen) renderSparesModal(); // patches any "…" rows for this collection's spares in place, see sparesModalOpen
     return liveCall;
   }
 
@@ -1123,8 +1165,26 @@ function sortedKeys(){
   return keys; // 'default' — whatever order collections first appeared in the wallet fetch
 }
 
+// Applied after sortedKeys() rather than folded into it — search narrows
+// *which* collections show, sort decides their order, and keeping them
+// separate means typing into the search box never disturbs whichever sort
+// is currently active (or vice versa).
+function filteredKeys(){
+  const keys = sortedKeys();
+  if(!searchQuery) return keys;
+  return keys.filter(key => (allGroups[key].name || '').toLowerCase().includes(searchQuery));
+}
+
 function render(){
-  shelfEl.innerHTML = sortedKeys().map(collectionCardHtml).join('');
+  const keys = filteredKeys();
+  shelfEl.innerHTML = keys.map(collectionCardHtml).join('');
+  const totalCount = Object.keys(allGroups).length;
+  if(searchQuery && keys.length === 0 && totalCount > 0){
+    noResultsEl.textContent = `No collections match "${searchInputEl.value.trim()}".`;
+    noResultsEl.style.display = 'block';
+  } else {
+    noResultsEl.style.display = 'none';
+  }
 }
 
 // Patches just the price-tag text/class on this card — no innerHTML
@@ -1747,6 +1807,14 @@ function updateFlexCardAvailability(){
 // already sitting there from the main load at zero extra cost. Sorted by
 // estimated spare value (known values first) so the biggest sell
 // opportunity leads, same ordering philosophy as "Highest Floor First".
+// g.floor is undefined until the eager loop actually reaches that
+// collection, then either a number or null (checked, no Magic Eden data).
+// Confirmed live: opening Spares before that loop finished collapsed
+// "not checked yet" into "no ME data" for every not-yet-reached
+// collection, which is a different claim and a wrong one — undefined
+// means "ask again later," null means "asked, nothing there." Same
+// pending/null distinction fetchCollectionRarities already draws for the
+// same reason (see its own comment on why collapsing them was a bug).
 function computeSpareStacks(){
   const stacks = [];
   for(const key of Object.keys(allGroups)){
@@ -1754,6 +1822,7 @@ function computeSpareStacks(){
     for(const group of groupByTitleAndRarity(g.items)){
       if(group.items.length < 2) continue;
       const spareCount = group.items.length - 1;
+      const pending = g.floor === undefined;
       const floor = typeof g.floor === 'number' ? g.floor : null;
       stacks.push({
         collectionName: g.name,
@@ -1761,6 +1830,7 @@ function computeSpareStacks(){
         rarity: group.rarity,
         count: group.items.length,
         spareCount,
+        pending,
         value: floor !== null ? floor * spareCount : null,
         image: candidateImagesFor(group.items)[0] || '',
         mint: group.items[0].mint,
@@ -1776,20 +1846,25 @@ function updateSparesAvailability(){
   updateActionRowVisibility();
 }
 
-// Re-rendered wholesale each time the modal opens rather than tracked
-// incrementally — same reasoning as the old "Almost There" list this
-// replaced: cheap even for a large wallet, and it means the list always
-// agrees with whatever allGroups holds right now (including g.floor
-// values that kept resolving after the button first appeared).
+// Re-rendered wholesale each time the modal opens (or a collection
+// resolves while it's open — see sparesModalOpen below) rather than
+// tracked incrementally — same reasoning as the old "Almost There" list
+// this replaced: cheap even for a large wallet, and it means the list
+// always agrees with whatever allGroups holds right now.
 function renderSparesModal(){
   const stacks = computeSpareStacks();
   const totalSpares = stacks.reduce((n, s) => n + s.spareCount, 0);
   const knownValue = stacks.reduce((sum, s) => sum + (s.value ?? 0), 0);
-  const anyUnpriced = stacks.some(s => s.value === null);
+  const anyPending = stacks.some(s => s.pending);
+  const anyConfirmedUnpriced = stacks.some(s => !s.pending && s.value === null);
   sparesSummaryEl.textContent = stacks.length === 0
     ? "Every comic in this wallet is a single copy — no spares to show."
-    : `${totalSpares} spare cop${totalSpares !== 1 ? 'ies' : 'y'} across ${stacks.length} print${stacks.length !== 1 ? 's' : ''} · est. ${knownValue.toFixed(3)} SOL${anyUnpriced ? ' (some still pricing, not included)' : ''}`;
-  spareListEl.innerHTML = stacks.map(s => `
+    : `${totalSpares} spare cop${totalSpares !== 1 ? 'ies' : 'y'} across ${stacks.length} print${stacks.length !== 1 ? 's' : ''} · est. ${knownValue.toFixed(3)} SOL` +
+      (anyPending ? ' (still pricing — this list updates as it resolves)' : '') +
+      (anyConfirmedUnpriced ? (anyPending ? ', some with no Magic Eden data' : ' (some with no Magic Eden data, not included)') : '');
+  spareListEl.innerHTML = stacks.map(s => {
+    const valueText = s.pending ? '…' : (s.value === null ? 'no ME data' : s.value.toFixed(3) + ' SOL');
+    return `
     <div class="spare-row">
       ${s.image ? `<img class="spare-cover" src="${esc(s.image)}" loading="lazy" onerror="this.style.opacity=0.2">` : `<div class="spare-cover"></div>`}
       <div class="spare-info">
@@ -1798,19 +1873,29 @@ function renderSparesModal(){
         <div class="spare-meta">${esc(s.collectionName)} &middot; own &times;${s.count}, <b>${s.spareCount} spare${s.spareCount !== 1 ? 's' : ''}</b></div>
       </div>
       <div class="spare-value">
-        <div class="spare-value-amt${s.value === null ? ' unavailable' : ''}">${s.value === null ? 'no ME data' : s.value.toFixed(3) + ' SOL'}</div>
+        <div class="spare-value-amt${(s.pending || s.value === null) ? ' unavailable' : ''}">${valueText}</div>
         <a class="copy-me-tag" href="${esc(`https://magiceden.io/item-details/${s.mint}`)}" target="_blank" rel="noopener">Sell on Magic Eden &#8599;</a>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
+// Tracked so the eager loading loop can patch this modal's still-pending
+// rows in place as each collection resolves — same live-while-open
+// pattern openModalKey uses for the collection panel (see
+// renderMissingRaritiesStatus's callers), so a visitor who opens Spares
+// early sees "…" rows fill in with real numbers instead of a value frozen
+// at whatever had resolved the moment they clicked.
+let sparesModalOpen = false;
 function openSparesModal(){
+  sparesModalOpen = true;
   renderSparesModal();
   sparesModalEl.style.display = 'flex';
   document.body.style.overflow = 'hidden';
 }
 function closeSparesModal(){
+  sparesModalOpen = false;
   sparesModalEl.style.display = 'none';
   document.body.style.overflow = '';
 }
@@ -2231,6 +2316,10 @@ sortCompleteBtn.addEventListener('click', () => {
   sortCompleteBtn.classList.add('active');
   sortDefaultBtn.classList.remove('active');
   sortPriceBtn.classList.remove('active');
+  render();
+});
+searchInputEl.addEventListener('input', () => {
+  searchQuery = searchInputEl.value.trim().toLowerCase();
   render();
 });
 
