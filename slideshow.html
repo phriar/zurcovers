@@ -166,6 +166,13 @@ footer.tip-footer{ padding:0 32px 40px; font-size:.78rem; line-height:1.6; color
 #frame { position:fixed; inset:0; display:none; }
 #frame.show { display:block; }
 #bg { position:absolute; inset:-40px; background-size:cover; background-position:center; filter:blur(60px) brightness(0.22) saturate(1.6); transition:background-image 1.2s ease; z-index:0; }
+/* padding-top is a static fallback only — syncArtTopPadding() overrides it
+   with #top-bar's real measured height on every frame, since how tall the
+   banner actually renders varies a lot (title/collection name length,
+   screen width, how many trait chips wrap). A fixed value here previously
+   let a long collection name on a narrow phone grow #top-bar taller than
+   this padding accounted for, so the banner spilled down over the cover
+   art itself — confirmed live on iPhone. */
 #art-wrap { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; z-index:1; padding:168px 48px 56px; }
 #art { max-width:100%; max-height:100%; object-fit:contain; box-shadow:0 32px 80px rgba(0,0,0,0.7); transition:opacity .7s ease; display:block; }
 #art.fade { opacity:0; }
@@ -221,6 +228,27 @@ footer.tip-footer{ padding:0 32px 40px; font-size:.78rem; line-height:1.6; color
   transition:color .15s,border-color .15s;
 }
 .home-link:hover { color:var(--gold); border-color:rgba(232,178,77,0.4); }
+
+/* On a narrow phone, #masthead's mh-left/mh-right side-by-side row (see
+   above) squeezes mh-left down to a sliver, and .mh-coll's wide
+   .26em letter-spacing then wraps the collection name almost one word per
+   line — confirmed live on iPhone (a 6-7 line wall of spaced-out gold
+   text). Stacking mh-right below mh-left instead gives the title/collection
+   block the full width to work with, and tightening the letter-spacing
+   plus capping .mh-coll at 2 lines keeps even a long name (e.g. "Justice
+   League of America (1960-1987) #1") readable rather than exploding
+   vertically. syncArtTopPadding() still measures the real result and
+   adjusts #art-wrap accordingly, so this is about readability, not correctness. */
+@media (max-width:600px){
+  #masthead{ flex-direction:column; align-items:flex-start; gap:10px; padding:18px 18px 10px; }
+  .mh-name{ max-width:100%; font-size:clamp(1.3rem,6vw,1.9rem); }
+  .mh-coll{
+    letter-spacing:.08em; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+    overflow:hidden; max-width:100%;
+  }
+  .mh-right{ align-self:flex-start; }
+  .trait-strip{ padding:0 18px 14px; }
+}
 </style>
 </head>
 <body>
@@ -398,6 +426,8 @@ var frameEl   = document.getElementById('frame');
 var loadingEl = document.getElementById('loading');
 var loadText  = document.getElementById('load-text');
 var bgEl      = document.getElementById('bg');
+var topBarEl  = document.getElementById('top-bar');
+var artWrapEl = document.getElementById('art-wrap');
 var artEl     = document.getElementById('art');
 var mName     = document.getElementById('m-name');
 var mColl     = document.getElementById('m-coll');
@@ -432,12 +462,14 @@ function backToEntry() {
 function switchCollection() {
   clearTimeout(timer);
   frameEl.classList.remove('show');
+  homeLinkEl.style.display = 'block'; // hidden during the frame itself, see startFrame
   showPicker();
 }
 
 function backToList() {
   clearTimeout(timer);
   frameEl.classList.remove('show');
+  homeLinkEl.style.display = 'block'; // hidden during the frame itself, see startFrame
   if (currentItems.length > 0) showNFTList(currentItems, currentName);
   else showPicker();
 }
@@ -663,6 +695,13 @@ function startFrame(items, startIdx) {
   nftListEl.classList.remove('show');
   pickerEl.classList.remove('show');
   frameEl.classList.add('show');
+  // The frame already has its own "Change Wallet"/"Long Box" way back (see
+  // #controls) — the fixed top-left home-link is redundant here and, at
+  // larger masthead title sizes (confirmed on iPad), visually overlaps the
+  // comic title it sits on top of (z-index 20 vs #top-bar's 2). Restored
+  // in switchCollection()/backToList(), the two ways out of the frame back
+  // to a view that still needs it.
+  homeLinkEl.style.display = 'none';
   paused = false;
   pauseBtn.textContent = 'Pause';
   show(idx);
@@ -741,6 +780,16 @@ function updateFloorDisplay(n) {
   });
 }
 
+// #top-bar's real height varies with title/collection length and screen
+// width (see its own CSS comment) — measured and applied after every
+// content change rather than assumed, so the cover art never starts
+// underneath the banner no matter how tall it actually rendered. The
+// small extra buffer just keeps art off the banner's bottom border.
+function syncArtTopPadding() {
+  artWrapEl.style.paddingTop = (topBarEl.offsetHeight + 24) + 'px';
+}
+window.addEventListener('resize', function(){ if (frameEl.classList.contains('show')) syncArtTopPadding(); });
+
 function show(i) {
   var n = nfts[i];
   if (!n) return;
@@ -783,6 +832,7 @@ function show(i) {
   mMeLink.href = 'https://magiceden.io/item-details/' + n.mint;
   mCounter.textContent = (i + 1) + ' / ' + nfts.length;
   if (nfts[i + 1] && nfts[i + 1].image) { var pre = new Image(); pre.src = nfts[i + 1].image; }
+  syncArtTopPadding(); // must run after every masthead field above is set — its rendered height is what's being measured
 }
 
 function nextNFT() { idx=(idx+1)%nfts.length; show(idx); if(!paused){clearTimeout(timer);schedule();} }
@@ -843,7 +893,12 @@ function handleZoneTap(clientX) {
   frameEl.addEventListener('touchstart', function(e){ sx = e.touches[0].clientX; sy = e.touches[0].clientY; moved = false; }, { passive:true });
   frameEl.addEventListener('touchmove', function(){ moved = true; }, { passive:true });
   frameEl.addEventListener('touchend', function(e){
-    if (e.target.closest('#controls') || e.target.closest('.me-link')) return;
+    // #top-bar holds the masthead (title/collection/floor/rarity) and the
+    // trait-strip — excluded here the same way #controls/.me-link already
+    // are, so swiping the banner to read a comic's details (or scrolling
+    // the trait strip horizontally) doesn't also advance to the next NFT.
+    // Only the cover art area below it should drive tap-to-advance/swipe.
+    if (e.target.closest('#controls') || e.target.closest('.me-link') || e.target.closest('#top-bar')) return;
     var dx = e.changedTouches[0].clientX - sx;
     var dy = e.changedTouches[0].clientY - sy;
     if (Math.abs(dx) > 44 && Math.abs(dx) > Math.abs(dy) * 1.5) { if (dx < 0) nextNFT(); else prevNFT(); }
@@ -856,7 +911,7 @@ function handleZoneTap(clientX) {
 })();
 
 frameEl.addEventListener('click', function(e) {
-  if (e.target.closest('#controls') || e.target.closest('.me-link')) return;
+  if (e.target.closest('#controls') || e.target.closest('.me-link') || e.target.closest('#top-bar')) return;
   if ('ontouchstart' in window) return;
   if (handleZoneTap(e.clientX)) return;
   togglePause();
