@@ -182,6 +182,14 @@
     color:var(--gold); margin-top:2px; text-decoration:none;
   }
   .copy-candy-link:hover{ color:var(--paper); }
+  /* Same lighter-red accent already used elsewhere for "worth your
+     attention" text on the dark wood background (disclosure-box.warn
+     strong, spare-meta b) — reused here rather than the raw --tag-red
+     button color, which reads as too dark/low-contrast as plain text. */
+  .copy-listed-tag{
+    display:block; font-family:'DM Mono',monospace; font-size:.85rem; letter-spacing:.05em; text-transform:uppercase;
+    color:#e8917a; margin-top:3px;
+  }
 
   /* Flex Card — a one-button "generate a shareable image" feature, drawn
      entirely on a <canvas> from data already in allGroups (no server
@@ -202,6 +210,12 @@
      since a wallet can have spares with zero complete sets or vice versa. */
   .flex-card-btn.spares-btn{ border-color:var(--cyan); color:var(--cyan); }
   .flex-card-btn.spares-btn:hover:not(:disabled){ background:rgba(45,230,208,0.1); }
+  /* My Listings — a third CTA in the same row, independently shown/hidden
+     like Spares (see updateListingsAvailability). Same lighter-red accent
+     as .copy-listed-tag/.listed-note, not raw --tag-red, for the same
+     legibility-as-text reason. */
+  .flex-card-btn.listings-btn{ border-color:#e8917a; color:#e8917a; }
+  .flex-card-btn.listings-btn:hover:not(:disabled){ background:rgba(232,145,122,0.12); }
 
   .spares-summary{
     margin-top:4px; font-family:'DM Mono',monospace; font-size:.88rem; letter-spacing:.02em;
@@ -411,6 +425,10 @@
     font-family:'DM Mono',monospace; font-size:.85rem; letter-spacing:.04em;
     color:rgba(45,230,208,0.8); margin-top:3px;
   }
+  .comic .caption .listed-note{
+    font-family:'DM Mono',monospace; font-size:.8rem; letter-spacing:.03em;
+    color:#e8917a; margin-top:3px;
+  }
 
   .empty{ position:relative; z-index:1; padding:60px 32px; text-align:center; color:rgba(243,239,230,0.89); font-family:'Cormorant Garamond',serif; font-size:1.2rem; font-weight:300; line-height:1.6; }
 
@@ -512,6 +530,7 @@
 <div class="flex-card-row" id="flex-card-row" style="display:none">
   <button class="flex-card-btn" id="flex-card-btn" style="display:none">Share a Complete Set &#9733;</button>
   <button class="flex-card-btn spares-btn" id="spares-btn" style="display:none">View Spares</button>
+  <button class="flex-card-btn listings-btn" id="listings-btn" style="display:none">My Listings</button>
 </div>
 
 <div class="controls-row" id="controls-row" style="display:none">
@@ -551,6 +570,16 @@
     <div class="copies-modal-title" id="spares-modal-title">Spares</div>
     <div class="spares-summary" id="spares-summary"></div>
     <div class="spare-list" id="spare-list"></div>
+  </div>
+</div>
+
+<div class="copies-modal" id="listings-modal" style="display:none">
+  <div class="copies-modal-backdrop" id="listings-modal-backdrop"></div>
+  <div class="copies-modal-panel" role="dialog" aria-modal="true" aria-labelledby="listings-modal-title">
+    <button class="copies-modal-close" id="listings-modal-close" aria-label="Close">&times;</button>
+    <div class="copies-modal-title" id="listings-modal-title">My Listings</div>
+    <div class="spares-summary" id="listings-summary"></div>
+    <div class="spare-list" id="listing-list"></div>
   </div>
 </div>
 
@@ -642,6 +671,12 @@ const sparesModalBackdropEl = document.getElementById('spares-modal-backdrop');
 const sparesModalCloseEl = document.getElementById('spares-modal-close');
 const sparesSummaryEl = document.getElementById('spares-summary');
 const spareListEl = document.getElementById('spare-list');
+const listingsBtn = document.getElementById('listings-btn');
+const listingsModalEl = document.getElementById('listings-modal');
+const listingsModalBackdropEl = document.getElementById('listings-modal-backdrop');
+const listingsModalCloseEl = document.getElementById('listings-modal-close');
+const listingsSummaryEl = document.getElementById('listings-summary');
+const listingListEl = document.getElementById('listing-list');
 const flexCardModalEl = document.getElementById('flex-card-modal');
 const flexCardDownloadBtn = document.getElementById('flex-card-download');
 const flexCardShareBtn = document.getElementById('flex-card-share');
@@ -809,6 +844,7 @@ async function loadWallet(address){
   flexCardRowEl.style.display = 'none';
   flexCardBtn.style.display = 'none';
   sparesBtn.style.display = 'none';
+  listingsBtn.style.display = 'none';
   sortMode = 'default';
   sortDefaultBtn.classList.add('active');
   sortPriceBtn.classList.remove('active');
@@ -819,13 +855,29 @@ async function loadWallet(address){
   setStatus('Fetching wallet assets…');
 
   let json;
+  let listedJson = [];
   try{
-    const res = await fetch(`${ME_BASE}/wallet-assets?address=${encodeURIComponent(address)}`);
-    if(!res.ok){
-      const errJson = await res.json().catch(() => ({}));
-      throw new Error(errJson.error === 'rate_limited' ? 'Too many lookups from here right now — try again in a bit.' : `HTTP ${res.status}`);
+    // Fetched alongside wallet-assets rather than after it — this is Magic
+    // Eden's own wallet-tokens endpoint (already reachable through the
+    // Worker's generic pass-through proxy, no Worker change needed), and
+    // there's no reason to make a visitor wait through it twice.
+    const [assetsRes, listedRes] = await Promise.all([
+      fetch(`${ME_BASE}/wallet-assets?address=${encodeURIComponent(address)}`),
+      fetch(`${ME_BASE}/wallets/${encodeURIComponent(address)}/tokens?listStatus=listed`).catch(() => null),
+    ]);
+    if(!assetsRes.ok){
+      const errJson = await assetsRes.json().catch(() => ({}));
+      throw new Error(errJson.error === 'rate_limited' ? 'Too many lookups from here right now — try again in a bit.' : `HTTP ${assetsRes.status}`);
     }
-    json = await res.json();
+    json = await assetsRes.json();
+    // Best-effort: a visitor's core wallet load must never fail just
+    // because Magic Eden's listings call hiccuped, so a bad/missing
+    // response here just means "nothing currently listed" rather than an
+    // error — same silent-degrade spirit as pollForBackfillUpdates below.
+    if(listedRes && listedRes.ok){
+      const parsed = await listedRes.json().catch(() => []);
+      if(Array.isArray(parsed)) listedJson = parsed;
+    }
   }catch(e){
     setStatus('Could not load that wallet: ' + e.message, true);
     return;
@@ -838,10 +890,55 @@ async function loadWallet(address){
   }
 
   allGroups = {};
+  const ownedByMint = new Map();
   for(const a of assets){
     const key = a.collectionKey || a.collectionName || a.mint;
     if(!allGroups[key]) allGroups[key] = { name: a.collectionName || 'Unknown Collection', items: [], sampleMint: a.mint, symbol: undefined, floor: undefined, knownRarities: undefined };
     allGroups[key].items.push(a);
+    ownedByMint.set(a.mint, a);
+  }
+
+  // Comics currently listed for sale vanish entirely from Helius's
+  // getAssetsByOwner once listed (confirmed live against a real wallet:
+  // every one of its currently-listed mints was absent from wallet-assets,
+  // even though Magic Eden's own API still reports this wallet as owner)
+  // — without this merge, a listed comic would silently disappear from
+  // the shelf as if it had been sold. Magic Eden's per-mint data carries
+  // no on-chain collectionKey (that's a Helius/DAS-only concept), so a
+  // listed item is folded into whichever existing group already carries
+  // the same collectionName — reusing that group's real collectionKey —
+  // and only falls back to collectionName as its own group key when this
+  // wallet holds no unlisted copy of that collection at all. In that
+  // fallback case, floor price / rarity / complete-set checks for that one
+  // card silently stay unresolved (the same safe degrade any collection
+  // without a real collectionKey already gets) since the Worker's
+  // onchain-collections endpoints reject a key that isn't pubkey-shaped —
+  // the card still renders correctly with its listed price, just without
+  // a floor sticker or complete-set ribbon.
+  const nameToKey = {};
+  for(const key of Object.keys(allGroups)) nameToKey[allGroups[key].name] = key;
+  for(const t of listedJson){
+    if(!t || !t.mintAddress || isExcludedCollection(t.collectionName)) continue;
+    const existing = ownedByMint.get(t.mintAddress);
+    if(existing){
+      // Same mint Helius already returned — just tag it, don't duplicate it.
+      existing.isListed = true;
+      existing.listPrice = typeof t.price === 'number' ? t.price : null;
+      continue;
+    }
+    const collectionName = t.collectionName || 'Unknown Collection';
+    const key = nameToKey[collectionName] || collectionName;
+    if(!allGroups[key]) allGroups[key] = { name: collectionName, items: [], sampleMint: t.mintAddress, symbol: undefined, floor: undefined, knownRarities: undefined };
+    allGroups[key].items.push({
+      mint: t.mintAddress,
+      name: t.name,
+      collectionName,
+      image: t.image,
+      attributes: Array.isArray(t.attributes) ? t.attributes : [],
+      isListed: true,
+      listPrice: typeof t.price === 'number' ? t.price : null,
+    });
+    nameToKey[collectionName] = key;
   }
   const groupKeys = Object.keys(allGroups);
 
@@ -858,6 +955,7 @@ async function loadWallet(address){
   updateCollectorStats();
   updatePortfolioValue();
   updateSparesAvailability(); // spares need no async data at all — title/rarity come straight off the raw assets, so this can appear immediately rather than waiting on the eager floor/rarity loop below
+  updateListingsAvailability(); // same reasoning — listing status/price came back with the initial load, nothing async left to wait on
   // Sort unlocks immediately rather than waiting for the whole eager loop
   // below to finish — with a wallet spanning many collections, that wait
   // can run into a minute or more. "Highest Floor First" works correctly
@@ -1093,6 +1191,19 @@ function priceTagHtmlFor(floor){
   return `<div class="price-tag ${cls}" data-price>${text}</div>`;
 }
 
+// Every cover-art corner already carries a sticker (qty top-left,
+// price bottom-right, complete/almost ribbon bottom-left, next card's
+// overlap claims top-right — see qty-sticker's own comment on why), so
+// "currently listed" surfaces as a caption line under the title instead
+// of a fifth sticker crowding the art. Known synchronously at load —
+// unlike floor/rarity, nothing here needs a later patch-in-place.
+function listedInfoFor(items){
+  const listed = items.filter(i => i.isListed);
+  if(listed.length === 0) return null;
+  const prices = listed.map(i => i.listPrice).filter(p => typeof p === 'number');
+  return { count: listed.length, minPrice: prices.length ? Math.min(...prices) : null };
+}
+
 // One card per collection — tapping it always opens the panel (never
 // links straight out), since a "collection" here can hold anywhere from
 // one comic to dozens, and the panel is the only place that can show all
@@ -1129,6 +1240,7 @@ function collectionCardHtml(key){
   const missingCount = computeMissingRarities(key)?.length;
   const isComplete = missingCount === 0;
   const isAlmost = missingCount === 1;
+  const listedInfo = listedInfoFor(g.items);
   return `
     <div class="comic${isComplete ? ' is-complete' : ''}${isAlmost ? ' is-almost-complete' : ''}" style="--tilt:${tilt}" role="button" tabindex="0" data-card-id="${esc(key)}">
       <div class="cover-wrap">
@@ -1141,6 +1253,7 @@ function collectionCardHtml(key){
       <div class="caption">
         <div class="name">${esc(g.name)}</div>
         <div class="sub">${distinctCount} comic${distinctCount !== 1 ? 's' : ''} &middot; ${totalCount} cop${totalCount !== 1 ? 'ies' : 'y'} owned</div>
+        ${listedInfo ? `<div class="listed-note">${listedInfo.count} listed${listedInfo.minPrice !== null ? ` &middot; from ${listedInfo.minPrice.toFixed(3)} SOL` : ''}</div>` : ''}
       </div>
     </div>
   `;
@@ -1389,6 +1502,12 @@ function collectionModalTileHtml({ title, rarity, items }){
   const candidates = candidateImagesFor(items);
   const rep = items.find(i => i.image) || items[0];
   const pdpUrl = `https://magiceden.io/item-details/${rep.mint}`;
+  // Which specific copy in this tile (there can be more than one, the ×N
+  // case) is currently listed, if any — separate from listedInfoFor's
+  // collection-level rollup on the shelf card, since here it matters which
+  // exact print, not just that the collection has something for sale.
+  const listedItems = items.filter(i => i.isListed);
+  const listedPrices = listedItems.map(i => i.listPrice).filter(p => typeof p === 'number');
   return `
     <div class="copy-card" data-tile-mint="${esc(rep.mint)}">
       <a href="${esc(pdpUrl)}" target="_blank" rel="noopener">
@@ -1396,6 +1515,7 @@ function collectionModalTileHtml({ title, rarity, items }){
       </a>
       <div class="copy-title">${esc(title)}${items.length > 1 ? ` &times;${items.length}` : ''}</div>
       ${rarity ? `<div class="comic-rarity rarity-${rarity.toLowerCase()}">${esc(rarity)}</div>` : ''}
+      ${listedItems.length > 0 ? `<div class="copy-listed-tag">Listed${listedPrices.length ? ` &middot; ${Math.min(...listedPrices).toFixed(3)} SOL` : ''}</div>` : ''}
       <a class="copy-me-tag" href="${esc(pdpUrl)}" target="_blank" rel="noopener">Magic Eden &#8599;</a>
       <span data-candy-slot>${rep.candyUrl ? `<a class="copy-candy-link" href="${esc(rep.candyUrl)}" target="_blank" rel="noopener">Read on Candy &#8599;</a>` : ''}</span>
     </div>
@@ -1776,7 +1896,8 @@ function defaultShareTextForSet(key){
 function updateActionRowVisibility(){
   const showFlex = flexCardBtn.style.display !== 'none';
   const showSpares = sparesBtn.style.display !== 'none';
-  flexCardRowEl.style.display = (showFlex || showSpares) ? 'flex' : 'none';
+  const showListings = listingsBtn.style.display !== 'none';
+  flexCardRowEl.style.display = (showFlex || showSpares || showListings) ? 'flex' : 'none';
 }
 
 // Shows/hides the Share-a-Complete-Set entry point based on whether the
@@ -1902,6 +2023,70 @@ function closeSparesModal(){
 sparesBtn.addEventListener('click', openSparesModal);
 sparesModalCloseEl.addEventListener('click', closeSparesModal);
 sparesModalBackdropEl.addEventListener('click', closeSparesModal);
+
+// Unlike Spares, nothing here is ever "still pricing" — listing status
+// and price both came back with the initial wallet load (merged into
+// allGroups in loadWallet), so this never needs a live-while-open patch
+// path the way renderSparesModal does.
+function computeListingStacks(){
+  const stacks = [];
+  for(const key of Object.keys(allGroups)){
+    const g = allGroups[key];
+    for(const item of g.items){
+      if(!item.isListed) continue;
+      stacks.push({
+        collectionName: g.name,
+        title: cleanTitle(item.name) || item.name,
+        rarity: normalizeRarity(item.attributes),
+        price: item.listPrice,
+        image: item.image || '',
+        mint: item.mint,
+      });
+    }
+  }
+  stacks.sort((a, b) => (b.price ?? -1) - (a.price ?? -1));
+  return stacks;
+}
+
+function updateListingsAvailability(){
+  listingsBtn.style.display = computeListingStacks().length > 0 ? 'inline-block' : 'none';
+  updateActionRowVisibility();
+}
+
+function renderListingsModal(){
+  const stacks = computeListingStacks();
+  const totalValue = stacks.reduce((sum, s) => sum + (s.price ?? 0), 0);
+  listingsSummaryEl.textContent = stacks.length === 0
+    ? "Nothing in this wallet is currently listed for sale."
+    : `${stacks.length} comic${stacks.length !== 1 ? 's' : ''} listed · combined ask ${totalValue.toFixed(3)} SOL`;
+  listingListEl.innerHTML = stacks.map(s => `
+    <div class="spare-row">
+      ${s.image ? `<img class="spare-cover" src="${esc(s.image)}" loading="lazy" onerror="this.style.opacity=0.2">` : `<div class="spare-cover"></div>`}
+      <div class="spare-info">
+        <div class="spare-name">${esc(s.title)}</div>
+        ${s.rarity ? `<div class="comic-rarity rarity-${esc(s.rarity.toLowerCase())}">${esc(s.rarity)}</div>` : ''}
+        <div class="spare-meta">${esc(s.collectionName)}</div>
+      </div>
+      <div class="spare-value">
+        <div class="spare-value-amt${s.price === null ? ' unavailable' : ''}">${s.price === null ? 'price n/a' : s.price.toFixed(3) + ' SOL'}</div>
+        <a class="copy-me-tag" href="${esc(`https://magiceden.io/item-details/${s.mint}`)}" target="_blank" rel="noopener">View on Magic Eden &#8599;</a>
+      </div>
+    </div>
+  `).join('');
+}
+
+function openListingsModal(){
+  renderListingsModal();
+  listingsModalEl.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+function closeListingsModal(){
+  listingsModalEl.style.display = 'none';
+  document.body.style.overflow = '';
+}
+listingsBtn.addEventListener('click', openListingsModal);
+listingsModalCloseEl.addEventListener('click', closeListingsModal);
+listingsModalBackdropEl.addEventListener('click', closeListingsModal);
 
 // crossOrigin='anonymous' means a host that doesn't send CORS headers
 // fails to load (onerror) rather than loading a canvas-tainting image —
