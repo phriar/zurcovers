@@ -2124,11 +2124,11 @@ function renderAlmostList(){
     almostListEl.innerHTML = '';
     return;
   }
-  almostSummaryEl.textContent = `${almost.length} set${almost.length !== 1 ? 's' : ''} just one rarity away from complete — share one and see if someone has it.`;
+  almostSummaryEl.textContent = `${almost.length} set${almost.length !== 1 ? 's' : ''} just one rarity away from complete — trade for one and see if someone has it.`;
   almostListEl.innerHTML = almost.map(a => `
     <div class="almost-row">
       <div class="almost-row-info">${esc(a.name)} &middot; missing <b>${esc(a.missingRarity)}</b></div>
-      <button class="almost-share-btn" data-almost-key="${esc(a.key)}">Share</button>
+      <button class="almost-share-btn" data-almost-key="${esc(a.key)}">Trade For</button>
     </div>
   `).join('');
 }
