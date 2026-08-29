@@ -22,6 +22,7 @@
     --cyan:   #2de6d0;
     --paper:  #f3efe6;
     --tag-red: #c0392b;
+    --violet: #b79ce8;
     --border: rgba(243,239,230,0.1);
   }
 
@@ -107,6 +108,18 @@
   .page-card .page-desc{
     margin-top:4px; font-size:.88rem; line-height:1.5; color:rgba(243,239,230,0.9);
   }
+  /* No-wallet section — Trade Board isn't a "deeper view of the same
+     wallet" like Slideshow/Quests above it, so it gets its own labeled
+     group rather than sitting inside one implying it needs an address.
+     Violet instead of gold for the same reason. */
+  .no-wallet-views{ margin-top:22px; }
+  .no-wallet-views .label{
+    font-size:.88rem; letter-spacing:.18em; text-transform:uppercase; color:rgba(243,239,230,0.88);
+    margin-bottom:12px;
+  }
+  .page-card.no-wallet:hover{ border-color:rgba(183,156,232,0.5); background:rgba(183,156,232,0.06); }
+  .page-card.no-wallet .page-name{ color:rgba(183,156,232,0.85); }
+  .page-card.no-wallet:hover .page-name{ color:var(--violet); }
 
   footer{
     margin-top:36px; font-size:.88rem; letter-spacing:.1em;
@@ -183,6 +196,16 @@
       <a class="page-card" href="quests.html">
         <div class="page-name">Quests &#8599;</div>
         <div class="page-desc">See which of Candy Digital's weekly quests this wallet has already completed.</div>
+      </a>
+    </div>
+  </div>
+
+  <div class="no-wallet-views">
+    <div class="label">No wallet needed</div>
+    <div class="page-list">
+      <a class="page-card no-wallet" href="trade-board.html">
+        <div class="page-name">Trade Board &#8599;</div>
+        <div class="page-desc">Browse spare comics other collectors are open to trading. Just looking? No wallet address required.</div>
       </a>
     </div>
   </div>

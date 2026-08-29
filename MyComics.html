@@ -237,6 +237,41 @@
   .spare-value{ text-align:right; flex-shrink:0; }
   .spare-value-amt{ font-family:'DM Mono',monospace; font-size:.92rem; color:var(--gold); white-space:nowrap; }
   .spare-value-amt.unavailable{ color:rgba(243,239,230,0.5); }
+  /* Propose Trade — a second action alongside "Sell on Magic Eden" on each
+     spare row. Own accent (violet) so it reads as a distinct action, not
+     a second sell link. */
+  .spare-trade-link{
+    display:block; font-family:'DM Mono',monospace; font-size:.85rem; letter-spacing:.05em; text-transform:uppercase;
+    color:#b79ce8; margin-top:3px; text-decoration:none; background:none; border:none; cursor:pointer; padding:0;
+  }
+  .spare-trade-link:hover{ color:var(--paper); }
+
+  /* Trade-compose modal — reuses .copies-modal/.copies-modal-panel shell
+     wholesale (see #trade-compose-modal below), only the body content
+     inside differs from Spares/Listings. */
+  .trade-compose-offer{ display:flex; align-items:center; gap:14px; padding:10px 12px; border-radius:4px; background:rgba(0,0,0,0.15); border:1px solid rgba(243,239,230,0.08); margin-top:12px; }
+  .trade-compose-offer .spare-cover{ width:52px; }
+  .trade-compose-label{ margin-top:18px; font-family:'DM Mono',monospace; font-size:.82rem; letter-spacing:.05em; text-transform:uppercase; color:rgba(243,239,230,0.75); }
+  .trade-compose-input{
+    width:100%; margin-top:8px; background:rgba(0,0,0,0.35); border:1px solid rgba(243,239,230,0.15); color:var(--paper);
+    font-family:'DM Mono',monospace; font-size:.92rem; padding:10px 12px; border-radius:3px; box-sizing:border-box;
+  }
+  .trade-compose-input:focus{ border-color:#b79ce8; }
+  .trade-compose-submit{
+    margin-top:16px; background:transparent; border:2px solid #b79ce8; color:#b79ce8;
+    font-family:'Bangers',cursive; font-size:1rem; letter-spacing:.04em; text-transform:uppercase;
+    padding:9px 20px; border-radius:3px; cursor:pointer; transition:all .15s;
+  }
+  .trade-compose-submit:hover:not(:disabled){ background:rgba(183,156,232,0.12); }
+  .trade-compose-submit:disabled{ opacity:.5; cursor:default; }
+  .trade-compose-status{ margin-top:10px; font-family:'DM Mono',monospace; font-size:.85rem; color:rgba(243,239,230,0.75); }
+  .trade-compose-status.error{ color:#e8917a; }
+  .trade-compose-status.success{ color:var(--cyan); }
+  .trade-compose-link{
+    display:inline-block; margin-top:14px; font-family:'DM Mono',monospace; font-size:.82rem; letter-spacing:.05em;
+    text-transform:uppercase; color:rgba(45,230,208,0.7); text-decoration:none;
+  }
+  .trade-compose-link:hover{ color:var(--cyan); }
 
   .flex-card-modal{
     position:fixed; inset:0; z-index:60; display:none; align-items:center; justify-content:center;
@@ -583,6 +618,21 @@
   </div>
 </div>
 
+<div class="copies-modal" id="trade-compose-modal" style="display:none">
+  <div class="copies-modal-backdrop" id="trade-compose-modal-backdrop"></div>
+  <div class="copies-modal-panel" role="dialog" aria-modal="true" aria-labelledby="trade-compose-modal-title">
+    <button class="copies-modal-close" id="trade-compose-modal-close" aria-label="Close">&times;</button>
+    <div class="copies-modal-title" id="trade-compose-modal-title">Propose Trade</div>
+    <div class="spares-summary">This spare gets posted to the public Trade Board — no wallet connection, nothing moves automatically. Interested collectors reach out to your wallet address directly to work out the swap.</div>
+    <div class="trade-compose-offer" id="trade-compose-offer"></div>
+    <label class="trade-compose-label" for="trade-compose-input">What are you hoping to get for it?</label>
+    <input type="text" class="trade-compose-input" id="trade-compose-input" maxlength="200" placeholder="e.g. a Rare copy of Detective Comics #27, or open to offers">
+    <button class="trade-compose-submit" id="trade-compose-submit">Post to Trade Board</button>
+    <div class="trade-compose-status" id="trade-compose-status"></div>
+    <a class="trade-compose-link" href="trade-board.html" target="_blank" rel="noopener">See what others are offering &#8599;</a>
+  </div>
+</div>
+
 <div class="flex-card-modal" id="flex-card-modal" style="display:none">
   <div class="flex-card-modal-backdrop" id="flex-card-modal-backdrop"></div>
   <div class="flex-card-modal-panel" role="dialog" aria-modal="true" aria-label="Flex card preview">
@@ -644,6 +694,12 @@ function isExcludedCollection(name){
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+// Set at the top of loadWallet — nothing else in this file previously
+// needed "the wallet address currently loaded" outside of loadWallet's
+// own parameter scope, but the trade-post compose modal below fires from
+// a click inside the Spares modal, well outside that scope.
+let currentWalletAddress = '';
+
 const statusEl = document.getElementById('status');
 const caveatEl = document.getElementById('caveat');
 const shelfEl = document.getElementById('shelf');
@@ -677,6 +733,13 @@ const listingsModalBackdropEl = document.getElementById('listings-modal-backdrop
 const listingsModalCloseEl = document.getElementById('listings-modal-close');
 const listingsSummaryEl = document.getElementById('listings-summary');
 const listingListEl = document.getElementById('listing-list');
+const tradeComposeModalEl = document.getElementById('trade-compose-modal');
+const tradeComposeModalBackdropEl = document.getElementById('trade-compose-modal-backdrop');
+const tradeComposeModalCloseEl = document.getElementById('trade-compose-modal-close');
+const tradeComposeOfferEl = document.getElementById('trade-compose-offer');
+const tradeComposeInputEl = document.getElementById('trade-compose-input');
+const tradeComposeSubmitEl = document.getElementById('trade-compose-submit');
+const tradeComposeStatusEl = document.getElementById('trade-compose-status');
 const flexCardModalEl = document.getElementById('flex-card-modal');
 const flexCardDownloadBtn = document.getElementById('flex-card-download');
 const flexCardShareBtn = document.getElementById('flex-card-share');
@@ -834,6 +897,7 @@ async function fetchCollectionRarities(collectionKey){
 }
 
 async function loadWallet(address){
+  currentWalletAddress = address;
   shelfEl.innerHTML = '';
   caveatEl.style.display = 'none';
   collectorSummaryEl.style.display = 'none';
@@ -1702,7 +1766,7 @@ document.getElementById('copies-modal-missing').addEventListener('click', (e) =>
   if(huntLink) trackZurvaultClick('MyComics');
 });
 document.addEventListener('keydown', (e) => {
-  if(e.key === 'Escape'){ closeCopiesModal(); closeSparesModal(); }
+  if(e.key === 'Escape'){ closeCopiesModal(); closeSparesModal(); closeListingsModal(); closeTradeComposeModal(); }
 });
 // Delegated (not bound per-card) so a click on any card works no matter
 // how many times the shelf has been re-rendered since — render() rebuilds
@@ -1996,11 +2060,28 @@ function renderSparesModal(){
       <div class="spare-value">
         <div class="spare-value-amt${(s.pending || s.value === null) ? ' unavailable' : ''}">${valueText}</div>
         <a class="copy-me-tag" href="${esc(`https://magiceden.io/item-details/${s.mint}`)}" target="_blank" rel="noopener">Sell on Magic Eden &#8599;</a>
+        <button class="spare-trade-link" data-trade-mint="${esc(s.mint)}" data-trade-title="${esc(s.title)}" data-trade-rarity="${esc(s.rarity || '')}" data-trade-collection="${esc(s.collectionName)}" data-trade-image="${esc(s.image || '')}">Propose Trade</button>
       </div>
     </div>
   `;
   }).join('');
 }
+
+// One delegated listener rather than per-row — spareListEl's rows are
+// rebuilt wholesale on every renderSparesModal() call (including live
+// while the modal is open, see sparesModalOpen below), so a listener
+// attached to individual buttons would need re-wiring on every rebuild.
+spareListEl.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-trade-mint]');
+  if(!btn) return;
+  openTradeComposeModal({
+    mint: btn.dataset.tradeMint,
+    title: btn.dataset.tradeTitle,
+    rarity: btn.dataset.tradeRarity,
+    collectionName: btn.dataset.tradeCollection,
+    image: btn.dataset.tradeImage,
+  });
+});
 
 // Tracked so the eager loading loop can patch this modal's still-pending
 // rows in place as each collection resolves — same live-while-open
@@ -2023,6 +2104,86 @@ function closeSparesModal(){
 sparesBtn.addEventListener('click', openSparesModal);
 sparesModalCloseEl.addEventListener('click', closeSparesModal);
 sparesModalBackdropEl.addEventListener('click', closeSparesModal);
+
+// Propose Trade compose modal — opened from a Spares row (see the
+// delegated click listener on spareListEl above). The offered comic is
+// fixed (whatever spare was clicked); the only input is what the poster
+// wants in return. Posts straight to the Worker's public trade board —
+// discovery only, nothing here moves the Collectible or holds anything in
+// escrow (see zurcovers-proxy-worker.js's handleTradePost).
+let tradeComposeOffer = null;
+function openTradeComposeModal(offer){
+  tradeComposeOffer = offer;
+  tradeComposeOfferEl.innerHTML = `
+    ${offer.image ? `<img class="spare-cover" src="${esc(offer.image)}" loading="lazy" onerror="this.style.opacity=0.2">` : `<div class="spare-cover"></div>`}
+    <div class="spare-info">
+      <div class="spare-name">${esc(offer.title)}</div>
+      ${offer.rarity ? `<div class="comic-rarity rarity-${esc(offer.rarity.toLowerCase())}">${esc(offer.rarity)}</div>` : ''}
+      <div class="spare-meta">${esc(offer.collectionName)}</div>
+    </div>
+  `;
+  tradeComposeInputEl.value = '';
+  tradeComposeStatusEl.textContent = '';
+  tradeComposeStatusEl.className = 'trade-compose-status';
+  tradeComposeSubmitEl.disabled = false;
+  tradeComposeSubmitEl.textContent = 'Post to Trade Board';
+  tradeComposeModalEl.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+  tradeComposeInputEl.focus();
+}
+function closeTradeComposeModal(){
+  tradeComposeModalEl.style.display = 'none';
+  document.body.style.overflow = '';
+}
+tradeComposeModalCloseEl.addEventListener('click', closeTradeComposeModal);
+tradeComposeModalBackdropEl.addEventListener('click', closeTradeComposeModal);
+
+async function submitTradePost(){
+  const wantText = tradeComposeInputEl.value.trim();
+  if(!wantText){
+    tradeComposeStatusEl.textContent = 'Say what you\'re hoping to get for it.';
+    tradeComposeStatusEl.className = 'trade-compose-status error';
+    return;
+  }
+  if(!tradeComposeOffer || !currentWalletAddress) return;
+  tradeComposeSubmitEl.disabled = true;
+  tradeComposeSubmitEl.textContent = 'Posting…';
+  tradeComposeStatusEl.textContent = '';
+  tradeComposeStatusEl.className = 'trade-compose-status';
+  try{
+    const res = await fetch(`${ME_BASE}/trade-post`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        posterWallet: currentWalletAddress,
+        offerMint: tradeComposeOffer.mint,
+        offerTitle: tradeComposeOffer.title,
+        offerRarity: tradeComposeOffer.rarity,
+        offerCollectionName: tradeComposeOffer.collectionName,
+        offerImage: tradeComposeOffer.image,
+        wantText,
+      }),
+    });
+    if(!res.ok){
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error === 'mint_not_owned'
+        ? "That comic doesn't look like it's still in this wallet — try reloading first."
+        : body.error === 'rate_limited'
+        ? 'Too many posts from this connection recently — try again in a bit.'
+        : "Couldn't post that trade — try again.");
+    }
+    tradeComposeStatusEl.textContent = 'Posted! Visible on the Trade Board now.';
+    tradeComposeStatusEl.className = 'trade-compose-status success';
+    tradeComposeSubmitEl.textContent = 'Posted';
+  }catch(e){
+    tradeComposeStatusEl.textContent = e.message;
+    tradeComposeStatusEl.className = 'trade-compose-status error';
+    tradeComposeSubmitEl.disabled = false;
+    tradeComposeSubmitEl.textContent = 'Post to Trade Board';
+  }
+}
+tradeComposeSubmitEl.addEventListener('click', submitTradePost);
+tradeComposeInputEl.addEventListener('keydown', (e) => { if(e.key === 'Enter') submitTradePost(); });
 
 // Unlike Spares, nothing here is ever "still pricing" — listing status
 // and price both came back with the initial wallet load (merged into

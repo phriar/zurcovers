@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#241407">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<link rel="manifest" href="site.webmanifest">
+<title>Trade Board — zurcovers</title>
+<meta name="description" content="Browse spare DC digital comics other collectors are open to trading — no wallet address needed to look.">
+<link href="https://fonts.googleapis.com/css2?family=Bangers&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  :root{
+    --wood-dark:  #241407;
+    --wood-mid:   #3a230f;
+    --wood-light: #4e3018;
+    --gold:   #e8b24d;
+    --cyan:   #2de6d0;
+    --paper:  #f3efe6;
+    --tag-red: #c0392b;
+    --violet: #b79ce8;
+  }
+
+  body{
+    background:
+      repeating-linear-gradient(90deg, rgba(0,0,0,0.08) 0px, transparent 2px, transparent 26px, rgba(0,0,0,0.08) 28px),
+      linear-gradient(180deg, var(--wood-mid), var(--wood-dark) 70%);
+    color:var(--paper); min-height:100vh;
+    font-family:'DM Mono',monospace; -webkit-font-smoothing:antialiased;
+  }
+
+  #grain{
+    position:fixed; inset:0; z-index:0; pointer-events:none; opacity:0.05;
+    background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  header{
+    position:relative; z-index:1; padding:44px 32px 22px; border-bottom:3px solid rgba(0,0,0,0.35);
+    background:radial-gradient(ellipse at top, rgba(183,156,232,0.12), transparent 60%);
+  }
+  header .brand{ font-size:.85rem; letter-spacing:.4em; color:rgba(243,239,230,0.89); text-transform:uppercase; font-family:'DM Mono',monospace; }
+  header .brand a{ color:rgba(243,239,230,0.89); text-decoration:none; }
+  header .brand a:hover{ color:var(--gold); }
+  header h1{
+    font-family:'Bangers',cursive; font-weight:400; letter-spacing:.03em;
+    font-size:clamp(2.4rem,7vw,4rem); line-height:1; margin-top:12px;
+    color:var(--violet); text-shadow:3px 3px 0 rgba(0,0,0,0.4);
+  }
+  header h1 span{ color:var(--paper); }
+  header .sub{ margin-top:12px; font-size:.98rem; letter-spacing:.02em; line-height:1.7; color:rgba(243,239,230,0.92); max-width:620px; }
+
+  .nav-links{ margin-top:16px; display:flex; gap:14px; flex-wrap:wrap; }
+  .nav-links a{ font-size:.88rem; letter-spacing:.16em; text-transform:uppercase; color:rgba(232,178,77,0.75); text-decoration:none; border:1px solid rgba(232,178,77,0.3); padding:6px 14px; border-radius:2px; transition:all .15s; }
+  .nav-links a:hover{ color:var(--gold); border-color:var(--gold); background:rgba(232,178,77,0.08); }
+
+  .filter-panel{
+    position:relative; z-index:1; padding:18px 32px; border-bottom:3px solid rgba(0,0,0,0.35);
+    display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+  }
+  .filter-panel input{
+    flex:1; min-width:220px; max-width:420px; background:rgba(0,0,0,0.35); border:1px solid rgba(243,239,230,0.15); color:var(--paper);
+    font-family:'DM Mono',monospace; font-size:.88rem; padding:11px 13px; border-radius:2px; outline:none;
+  }
+  .filter-panel input:focus{ border-color:var(--violet); }
+
+  #status{ position:relative; z-index:1; padding:16px 32px; font-size:.88rem; letter-spacing:.08em; color:rgba(243,239,230,0.9); text-transform:uppercase; }
+  #status.err{ color:#e8917a; }
+
+  .post-list{ position:relative; z-index:1; padding:8px 32px 60px; display:flex; flex-direction:column; gap:12px; max-width:760px; margin:0 auto; }
+  .post-row{
+    display:flex; align-items:center; gap:16px; padding:14px 16px; border-radius:6px;
+    background:rgba(0,0,0,0.2); border:1px solid rgba(183,156,232,0.2);
+  }
+  .post-cover{
+    width:64px; aspect-ratio:2/3; object-fit:cover; border-radius:2px;
+    box-shadow:0 3px 8px rgba(0,0,0,0.4); flex-shrink:0; background:rgba(255,255,255,0.05);
+  }
+  .post-info{ flex:1; min-width:0; }
+  .post-title{ font-family:'Cormorant Garamond',serif; font-size:1.15rem; color:rgba(243,239,230,0.97); }
+  .comic-rarity{
+    display:inline-block; margin-top:4px; font-family:'DM Mono',monospace; font-size:.72rem; letter-spacing:.08em;
+    text-transform:uppercase; padding:2px 8px; border-radius:20px; border:1px solid rgba(243,239,230,0.3); color:rgba(243,239,230,0.85);
+  }
+  .comic-rarity.rarity-rare{ color:var(--cyan); border-color:rgba(45,230,208,0.4); }
+  .comic-rarity.rarity-legendary{ color:var(--gold); border-color:rgba(232,178,77,0.5); }
+  .post-collection{ margin-top:4px; font-size:.82rem; color:rgba(243,239,230,0.6); }
+  .post-wants{ margin-top:6px; font-family:'Cormorant Garamond',serif; font-style:italic; font-size:1rem; color:var(--violet); }
+  .post-meta-row{ margin-top:8px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .post-poster{
+    font-size:.78rem; letter-spacing:.02em; color:rgba(243,239,230,0.55); cursor:pointer; user-select:none;
+  }
+  .post-poster:hover{ color:var(--paper); }
+  .post-poster.copied{ color:var(--cyan); }
+  .post-age{ font-size:.78rem; color:rgba(243,239,230,0.4); }
+  .post-me-link{ font-size:.78rem; letter-spacing:.05em; text-transform:uppercase; color:rgba(45,230,208,0.7); text-decoration:none; }
+  .post-me-link:hover{ color:var(--cyan); }
+
+  .empty-state{ font-family:'Cormorant Garamond',serif; font-size:1.1rem; color:rgba(243,239,230,0.7); padding:20px 4px; }
+
+  .disclosures{ position:relative; z-index:1; padding:16px 32px 4px; display:flex; flex-direction:column; gap:10px; max-width:760px; margin:0 auto; }
+  .disclosure-box{ padding:12px 16px; border-radius:4px; font-size:.92rem; line-height:1.7; }
+  .disclosure-box.info{ border:1px solid rgba(45,230,208,0.25); background:rgba(45,230,208,0.06); color:rgba(243,239,230,0.92); }
+  .disclosure-box.info a{ color:var(--violet); }
+
+  footer{
+    position:relative; z-index:1; padding:24px 32px 60px; font-size:.82rem; color:rgba(243,239,230,0.55);
+    display:flex; flex-direction:column; gap:6px;
+  }
+  footer a{ color:rgba(243,239,230,0.7); }
+  .tip-line{ font-size:.8rem; color:rgba(243,239,230,0.45); }
+  .tip-wallet{ cursor:pointer; text-decoration:underline dotted; }
+  .tip-wallet.copied{ color:var(--cyan); }
+</style>
+</head>
+<body>
+<div id="grain"></div>
+<script>
+// Same anonymous, non-identifying page-view beacon every other page fires
+// — see zurcovers-proxy-worker.js's /v2/page-view and metrics.html.
+(function(){
+  try{
+    var VID_KEY = 'zc_visitor_id';
+    var vid = localStorage.getItem(VID_KEY);
+    if(!vid){
+      vid = (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(16) + Math.random().toString(16).slice(2))).replace(/-/g,'').slice(0,8);
+      localStorage.setItem(VID_KEY, vid);
+    }
+    fetch('https://zurcovers-proxy.stholt.workers.dev/v2/page-view', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ page:'trade-board', visitorId: vid })
+    }).catch(function(){});
+  }catch(e){}
+})();
+</script>
+
+<header>
+  <div class="brand"><a href="index.html">zurcovers</a> / Trade Board</div>
+  <h1>Trade <span>Board</span></h1>
+  <div class="sub">Spare DC digital comics other collectors are open to trading. No wallet address needed to browse — reach out to a poster's wallet directly to work out a swap. Nothing here executes a trade automatically; this is just for finding each other.</div>
+  <div class="nav-links">
+    <a href="MyComics.html">Long Box</a>
+    <a href="index.html">Home</a>
+  </div>
+</header>
+
+<div class="filter-panel">
+  <input type="text" id="filter-input" placeholder="Filter by title or collection…" autocapitalize="off" autocorrect="off" spellcheck="false">
+</div>
+
+<div id="status">Loading open trade posts&hellip;</div>
+<div class="post-list" id="post-list"></div>
+
+<div class="disclosures">
+  <div class="disclosure-box info">Unofficial fan project &mdash; not affiliated with, endorsed by, or sponsored by DC Comics, Warner Bros. Discovery, Candy Digital, or Magic Eden. Postings are self-reported by whoever pasted their wallet on <a href="MyComics.html">the Long Box</a> and haven't been re-checked since — a spare may already be gone by the time you see it. Have a spare of your own? Open your Long Box &rarr; Spares &rarr; Propose Trade.</div>
+</div>
+
+<footer>
+  Trade data via this site's own Worker &middot; <a href="index.html">zurcovers.com</a>
+  <div class="tip-line">Built by a collector, for collectors. Zur is free to use. If it's helped you explore and enjoy your collection, support is welcome, never expected. <span class="tip-wallet" data-tip-copy="CCiBnYND2nj9JApdGMMk2trGH65NA565XTfETaj6dnHs" role="button" tabindex="0" title="Click to copy full address">&#9678; CCiBnY&hellip;j6dnHs</span></div>
+</footer>
+
+<script>
+const ME_PROXY_BASE = "https://zurcovers-proxy.stholt.workers.dev";
+const ME_BASE = ME_PROXY_BASE + "/v2";
+
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+
+function shortAddr(a){ return a.length > 10 ? a.slice(0,6) + '…' + a.slice(-6) : a; }
+
+function timeAgo(ms){
+  const secs = Math.max(0, (Date.now() - ms) / 1000);
+  if(secs < 3600) return Math.max(1, Math.round(secs/60)) + 'm ago';
+  if(secs < 86400) return Math.round(secs/3600) + 'h ago';
+  return Math.round(secs/86400) + 'd ago';
+}
+
+// Copy-to-clipboard for any [data-tip-copy] element, including ones added
+// to the DOM after the initial render (the post rows) — a plain
+// querySelectorAll-at-load pass (the pattern every other page uses for
+// just the single static footer wallet) wouldn't catch those, so this is
+// delegated instead.
+document.addEventListener('click', async function(e){
+  const el = e.target.closest('[data-tip-copy]');
+  if(!el) return;
+  try{
+    await navigator.clipboard.writeText(el.dataset.tipCopy);
+    const original = el.textContent;
+    el.textContent = 'Copied ✓';
+    el.classList.add('copied');
+    setTimeout(function(){ el.textContent = original; el.classList.remove('copied'); }, 1500);
+  }catch(err){ /* clipboard API unavailable/denied — address is still visible to select and copy by hand */ }
+});
+
+const statusEl = document.getElementById('status');
+const postListEl = document.getElementById('post-list');
+const filterInputEl = document.getElementById('filter-input');
+
+let allPostings = [];
+
+function postRowHtml(p){
+  const meUrl = `https://magiceden.io/item-details/${p.offerMint}`;
+  return `
+    <div class="post-row">
+      ${p.offerImage ? `<img class="post-cover" src="${esc(p.offerImage)}" loading="lazy" onerror="this.style.opacity=0.2">` : `<div class="post-cover"></div>`}
+      <div class="post-info">
+        <div class="post-title">${esc(p.offerTitle || 'Unknown comic')}</div>
+        ${p.offerRarity ? `<div class="comic-rarity rarity-${esc(p.offerRarity.toLowerCase())}">${esc(p.offerRarity)}</div>` : ''}
+        <div class="post-collection">${esc(p.offerCollectionName || '')}</div>
+        <div class="post-wants">Wants: ${esc(p.wantText)}</div>
+        <div class="post-meta-row">
+          <span class="post-poster" data-tip-copy="${esc(p.posterWallet)}" role="button" tabindex="0" title="Click to copy full address">&#9678; ${esc(shortAddr(p.posterWallet))}</span>
+          <span class="post-age">${esc(timeAgo(p.postedAt))}</span>
+          <a class="post-me-link" href="${esc(meUrl)}" target="_blank" rel="noopener">View on Magic Eden &#8599;</a>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderPostings(){
+  const q = filterInputEl.value.trim().toLowerCase();
+  const filtered = q
+    ? allPostings.filter(p => (p.offerTitle || '').toLowerCase().includes(q) || (p.offerCollectionName || '').toLowerCase().includes(q))
+    : allPostings;
+  if(filtered.length === 0){
+    postListEl.innerHTML = '';
+    statusEl.textContent = allPostings.length === 0
+      ? 'No open trade posts right now — check back later, or post one of your own from the Long Box.'
+      : 'Nothing matches that filter.';
+    statusEl.className = '';
+    return;
+  }
+  statusEl.textContent = `${filtered.length} open trade post${filtered.length !== 1 ? 's' : ''}`;
+  statusEl.className = '';
+  postListEl.innerHTML = filtered.map(postRowHtml).join('');
+}
+
+async function loadPostings(){
+  try{
+    const res = await fetch(`${ME_BASE}/trade-posts`);
+    if(!res.ok) throw new Error('bad response');
+    const data = await res.json();
+    allPostings = Array.isArray(data.postings) ? data.postings : [];
+    renderPostings();
+  }catch(e){
+    statusEl.textContent = "Couldn't load the Trade Board right now — try reloading.";
+    statusEl.className = 'err';
+  }
+}
+
+filterInputEl.addEventListener('input', renderPostings);
+loadPostings();
+</script>
+</body>
+</html>

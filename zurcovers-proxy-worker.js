@@ -152,6 +152,23 @@ const WALLET_CACHE_TTL_SECONDS = 90; // repeat loads of the same wallet within t
 const WALLET_RATE_LIMIT_PER_HOUR = 30; // per IP, only counted on actual Helius calls (cache hits are free)
 const WALLET_ASSET_MAX_PAGES = 10; // Helius getAssetsByOwner, 1000/page — same cap slideshow-legacy.html used
 
+// TRADE BOARD — POST /v2/trade-post (create a spare-comic trade posting),
+// GET /v2/trade-posts (list them). Discovery/matching only: no escrow, no
+// on-chain execution, nothing here ever moves a Collectible or holds
+// money — two collectors just find each other and coordinate off-platform.
+// A posting claims a specific mint is a spare the poster holds, so before
+// accepting one this re-checks ownership against the same
+// `walletassets:{address}` cache /v2/wallet-assets already populates
+// (free on a cache hit — the poster almost always just loaded their
+// wallet on MyComics.html seconds earlier) and only falls back to a live
+// fetchWalletAssets() call, gated by its own rate-limit bucket, on a miss.
+// 14-day TTL (shorter than the 90-day analytics TTLs above) because a
+// stale "I have a spare of this" claim is actively misleading, not just
+// inert data — nothing here re-verifies a posting still holds true once
+// posted, so a short expiry is the only staleness control v1 has.
+const TRADE_POST_TTL_SECONDS = 60 * 60 * 24 * 14;
+const TRADE_POST_RATE_LIMIT_PER_HOUR = 20; // per IP, only counted when the ownership check misses the wallet-assets cache
+
 // Was an allow-list of "NFT-ish" interface values — any interface type
 // Helius returned that wasn't on that specific list got silently
 // excluded from results, a confirmed real cause of users reporting
@@ -494,6 +511,113 @@ async function handleWalletAssets(request, env, ctx, corsHeaders) {
   }
 }
 
+function tradePostField(v, max) {
+  return String(v || "").slice(0, max);
+}
+
+async function handleTradePost(request, env, ctx, corsHeaders, ip) {
+  let payload;
+  try {
+    payload = JSON.parse(await request.text());
+  } catch {
+    return new Response(JSON.stringify({ error: "invalid_body" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const posterWallet = String(payload?.posterWallet || "").trim();
+  const offerMint = String(payload?.offerMint || "").trim();
+  if (!SOL_ADDRESS_RE.test(posterWallet)) {
+    return new Response(JSON.stringify({ error: "invalid_address" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+  if (!SOL_ADDRESS_RE.test(offerMint)) {
+    return new Response(JSON.stringify({ error: "invalid_mint" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+  const wantText = tradePostField(payload?.wantText, 200).trim();
+  if (!wantText) {
+    return new Response(JSON.stringify({ error: "invalid_want_text" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  // Re-check the posting actually holds the mint it claims — piggyback on
+  // /v2/wallet-assets's own cache first (free, and almost always a hit
+  // since posting happens right after loading the wallet on MyComics.html)
+  // before ever falling back to a live Helius call.
+  let ownedMints;
+  const cached = await env.ZURCOVERS_CACHE.get(`walletassets:${posterWallet}`);
+  if (cached) {
+    try {
+      ownedMints = new Set((JSON.parse(cached).assets || []).map((a) => a.mint));
+    } catch {
+      ownedMints = null;
+    }
+  }
+  if (!ownedMints) {
+    const allowed = await checkAndBumpRateLimit(ip, env, "tradepost", TRADE_POST_RATE_LIMIT_PER_HOUR);
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: "rate_limited", retryAfterSeconds: 3600 }), {
+        status: 429,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    try {
+      const assets = await fetchWalletAssets(posterWallet, env);
+      ownedMints = new Set(assets.map((a) => a.mint));
+    } catch (err) {
+      return new Response(JSON.stringify({ error: "wallet_lookup_failed", message: err.message }), {
+        status: 502,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+  }
+  if (!ownedMints.has(offerMint)) {
+    return new Response(JSON.stringify({ error: "mint_not_owned" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const posting = {
+    posterWallet,
+    offerMint,
+    offerTitle: tradePostField(payload?.offerTitle, 200),
+    offerRarity: tradePostField(payload?.offerRarity, 40),
+    offerCollectionName: tradePostField(payload?.offerCollectionName, 200),
+    offerImage: tradePostField(payload?.offerImage, 2000),
+    wantText,
+    postedAt: Date.now(),
+  };
+  const key = `tradepost:${posting.postedAt}-${crypto.randomUUID().slice(0, 8)}`;
+  await env.ZURCOVERS_CACHE.put(key, JSON.stringify(posting), { expirationTtl: TRADE_POST_TTL_SECONDS });
+
+  return new Response(null, { status: 204, headers: corsHeaders });
+}
+
+async function handleTradePosts(env, corsHeaders) {
+  const postings = [];
+  let cursor;
+  do {
+    const page = await env.ZURCOVERS_CACHE.list({ prefix: "tradepost:", cursor, limit: 1000 });
+    const values = await Promise.all(page.keys.map((k) => env.ZURCOVERS_CACHE.get(k.name, "json")));
+    for (const v of values) if (v) postings.push(v);
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  postings.sort((a, b) => (b.postedAt || 0) - (a.postedAt || 0));
+  return new Response(JSON.stringify({ postings, retentionDays: TRADE_POST_TTL_SECONDS / 86400 }), {
+    status: 200,
+    headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" },
+  });
+}
+
 // collectionKey comes straight from the URL path — restricted to a
 // conservative charset before it ever touches a KV key or an RPC call,
 // same defensive habit as click-log's sanitize() above. Base58 addresses
@@ -793,7 +917,7 @@ export default {
     // activity.html deliberately excluded — CLAUDE.md documents it as
     // "kept exactly as-is... don't otherwise modify it," so it isn't
     // instrumented and any hit for it just falls into "other" below.
-    const KNOWN_PAGES = new Set(["index", "MyComics", "wallet", "collections", "slideshow", "quests"]);
+    const KNOWN_PAGES = new Set(["index", "MyComics", "wallet", "collections", "slideshow", "quests", "trade-board"]);
 
     if (url.pathname === "/v2/page-view" && request.method === "POST") {
       let payload;
@@ -877,6 +1001,14 @@ export default {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" },
       });
+    }
+
+    // TRADE BOARD — see handleTradePost/handleTradePosts above.
+    if (url.pathname === "/v2/trade-post" && request.method === "POST") {
+      return handleTradePost(request, env, ctx, corsHeaders, ip);
+    }
+    if (url.pathname === "/v2/trade-posts" && request.method === "GET") {
+      return handleTradePosts(env, corsHeaders);
     }
 
     // Generic pass-through proxy + edge cache, same as ZurVault's Worker.
