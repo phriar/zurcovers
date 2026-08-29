@@ -217,6 +217,31 @@
   .flex-card-btn.listings-btn{ border-color:#e8917a; color:#e8917a; }
   .flex-card-btn.listings-btn:hover:not(:disabled){ background:rgba(232,145,122,0.12); }
 
+  /* Almost There — a second section stacked above the spares list inside
+     the same modal, surfacing the shelf's existing cyan "1 Away" signal
+     as an actual action (share a trade post for it) instead of a purely
+     decorative ribbon. Text-only rows (no cover image), so unlike
+     .spare-row this is safe to fully rebuild on every live update —
+     nothing here can flicker the way an <img> recreation would. */
+  .almost-section{ padding-bottom:18px; margin-bottom:18px; border-bottom:1px solid rgba(243,239,230,0.1); }
+  .almost-summary{
+    margin-top:4px; font-family:'DM Mono',monospace; font-size:.88rem; letter-spacing:.02em;
+    color:rgba(243,239,230,0.85); line-height:1.6;
+  }
+  .almost-list{ margin-top:14px; display:flex; flex-direction:column; gap:8px; }
+  .almost-row{
+    display:flex; align-items:center; justify-content:space-between; gap:12px; padding:9px 12px; border-radius:4px;
+    background:rgba(45,230,208,0.05); border:1px solid rgba(45,230,208,0.25);
+  }
+  .almost-row-info{ font-family:'DM Mono',monospace; font-size:.85rem; color:rgba(243,239,230,0.9); }
+  .almost-row-info b{ color:var(--cyan); font-weight:500; }
+  .almost-share-btn{
+    flex-shrink:0; background:transparent; border:1px solid var(--cyan); color:var(--cyan);
+    font-family:'DM Mono',monospace; font-size:.78rem; letter-spacing:.05em; text-transform:uppercase;
+    padding:5px 12px; border-radius:20px; cursor:pointer; transition:all .15s;
+  }
+  .almost-share-btn:hover{ background:rgba(45,230,208,0.12); }
+
   .spares-summary{
     margin-top:4px; font-family:'DM Mono',monospace; font-size:.88rem; letter-spacing:.02em;
     color:rgba(243,239,230,0.85); line-height:1.6;
@@ -603,8 +628,22 @@
   <div class="copies-modal-panel" role="dialog" aria-modal="true" aria-labelledby="spares-modal-title">
     <button class="copies-modal-close" id="spares-modal-close" aria-label="Close">&times;</button>
     <div class="copies-modal-title" id="spares-modal-title">Spares</div>
+    <div class="almost-section" id="almost-section" style="display:none">
+      <div class="almost-summary" id="almost-summary"></div>
+      <div class="almost-list" id="almost-list"></div>
+    </div>
     <div class="spares-summary" id="spares-summary"></div>
     <div class="spare-list" id="spare-list"></div>
+  </div>
+</div>
+
+<div class="copies-modal" id="offer-picker-modal" style="display:none">
+  <div class="copies-modal-backdrop" id="offer-picker-modal-backdrop"></div>
+  <div class="copies-modal-panel" role="dialog" aria-modal="true" aria-labelledby="offer-picker-modal-title">
+    <button class="copies-modal-close" id="offer-picker-modal-close" aria-label="Close">&times;</button>
+    <div class="copies-modal-title" id="offer-picker-modal-title">What Will You Offer?</div>
+    <div class="spares-summary" id="offer-picker-summary"></div>
+    <div class="spare-list" id="offer-picker-list"></div>
   </div>
 </div>
 
@@ -727,6 +766,14 @@ const sparesModalBackdropEl = document.getElementById('spares-modal-backdrop');
 const sparesModalCloseEl = document.getElementById('spares-modal-close');
 const sparesSummaryEl = document.getElementById('spares-summary');
 const spareListEl = document.getElementById('spare-list');
+const almostSectionEl = document.getElementById('almost-section');
+const almostSummaryEl = document.getElementById('almost-summary');
+const almostListEl = document.getElementById('almost-list');
+const offerPickerModalEl = document.getElementById('offer-picker-modal');
+const offerPickerModalBackdropEl = document.getElementById('offer-picker-modal-backdrop');
+const offerPickerModalCloseEl = document.getElementById('offer-picker-modal-close');
+const offerPickerSummaryEl = document.getElementById('offer-picker-summary');
+const offerPickerListEl = document.getElementById('offer-picker-list');
 const listingsBtn = document.getElementById('listings-btn');
 const listingsModalEl = document.getElementById('listings-modal');
 const listingsModalBackdropEl = document.getElementById('listings-modal-backdrop');
@@ -1766,7 +1813,7 @@ document.getElementById('copies-modal-missing').addEventListener('click', (e) =>
   if(huntLink) trackZurvaultClick('MyComics');
 });
 document.addEventListener('keydown', (e) => {
-  if(e.key === 'Escape'){ closeCopiesModal(); closeSparesModal(); closeListingsModal(); closeTradeComposeModal(); }
+  if(e.key === 'Escape'){ closeCopiesModal(); closeSparesModal(); closeListingsModal(); closeOfferPickerModal(); closeTradeComposeModal(); }
 });
 // Delegated (not bound per-card) so a click on any card works no matter
 // how many times the shelf has been re-rendered since — render() rebuilds
@@ -1822,6 +1869,16 @@ function flexCardScore(key){
 }
 function listCompleteSetKeys(){
   return Object.keys(allGroups).filter(key => computeMissingRarities(key)?.length === 0);
+}
+
+// Same "1 Away" signal the shelf card ribbon already computes
+// (updateCompleteBadgeForCard) — this just collects it into a list so the
+// Spares modal can offer a "share this near-complete set" action per
+// collection instead of the ribbon being purely decorative.
+function listAlmostCompleteKeys(){
+  return Object.keys(allGroups)
+    .filter(key => computeMissingRarities(key)?.length === 1)
+    .map(key => ({ key, name: allGroups[key].name, missingRarity: computeMissingRarities(key)[0] }));
 }
 
 // A serial straight from the item's own on-chain name (the same "(123/456)"
@@ -2054,6 +2111,33 @@ function spareRowHtml(s){
   `;
 }
 
+// Text-only, so unlike spareRowHtml/patchSparesForCollection this is
+// safe to fully rebuild on every call — no <img> to flicker. Called both
+// on full render and from patchSparesForCollection's live-while-open
+// patching, since a collection's knownRarities (and therefore its
+// missing-count) resolves at the same point in the eager loop as its
+// price does.
+function renderAlmostList(){
+  const almost = listAlmostCompleteKeys();
+  almostSectionEl.style.display = almost.length === 0 ? 'none' : 'block';
+  if(almost.length === 0){
+    almostListEl.innerHTML = '';
+    return;
+  }
+  almostSummaryEl.textContent = `${almost.length} set${almost.length !== 1 ? 's' : ''} just one rarity away from complete — share one and see if someone has it.`;
+  almostListEl.innerHTML = almost.map(a => `
+    <div class="almost-row">
+      <div class="almost-row-info">${esc(a.name)} &middot; missing <b>${esc(a.missingRarity)}</b></div>
+      <button class="almost-share-btn" data-almost-key="${esc(a.key)}">Share</button>
+    </div>
+  `).join('');
+}
+almostListEl.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-almost-key]');
+  if(!btn) return;
+  openOfferPickerModal(btn.dataset.almostKey);
+});
+
 function renderSparesSummary(stacks){
   const totalSpares = stacks.reduce((n, s) => n + s.spareCount, 0);
   const knownValue = stacks.reduce((sum, s) => sum + (s.value ?? 0), 0);
@@ -2079,6 +2163,7 @@ function renderSparesModal(){
   const stacks = computeSpareStacks();
   renderSparesSummary(stacks);
   spareListEl.innerHTML = stacks.map(spareRowHtml).join('');
+  renderAlmostList();
 }
 
 // Called from the eager loading loop instead of renderSparesModal() once
@@ -2100,6 +2185,7 @@ function patchSparesForCollection(key){
     amtEl.textContent = spareValueText(s);
     amtEl.classList.toggle('unavailable', s.pending || s.value === null);
   }
+  renderAlmostList();
 }
 
 // One delegated listener rather than per-row — spareListEl's rows are
@@ -2142,14 +2228,67 @@ sparesBtn.addEventListener('click', openSparesModal);
 sparesModalCloseEl.addEventListener('click', closeSparesModal);
 sparesModalBackdropEl.addEventListener('click', closeSparesModal);
 
-// Propose Trade compose modal — opened from a Spares row (see the
-// delegated click listener on spareListEl above). The offered comic is
-// fixed (whatever spare was clicked); the only input is what the poster
-// wants in return. Posts straight to the Worker's public trade board —
-// discovery only, nothing here moves the Collectible or holds anything in
-// escrow (see zurcovers-proxy-worker.js's handleTradePost).
+// Offer picker — opened from an Almost There row's Share button (see the
+// delegated click listener on almostListEl above) rather than a fixed
+// Spares row, since sharing a near-complete set means offering some
+// *other* spare (any collection) in exchange for the one missing rarity,
+// not a spare of the almost-complete collection itself. Picking a row
+// here hands off to the same openTradeComposeModal used by Spares —
+// this only decides *what* gets offered and pre-fills *what's wanted*,
+// the actual posting flow (validation, submit, ownership re-check on the
+// Worker) is identical either way.
+let almostSharingKey = null;
+function openOfferPickerModal(almostKey){
+  almostSharingKey = almostKey;
+  const stacks = computeSpareStacks();
+  if(stacks.length === 0){
+    offerPickerSummaryEl.textContent = "You don't have any spares to offer yet — pick one up first, then come back to share this set.";
+    offerPickerListEl.innerHTML = '';
+  } else {
+    offerPickerSummaryEl.textContent = 'Pick one of your spares to offer in exchange:';
+    offerPickerListEl.innerHTML = stacks.map(s => `
+      <div class="spare-row" data-offer-mint="${esc(s.mint)}" data-offer-title="${esc(s.title)}" data-offer-rarity="${esc(s.rarity || '')}" data-offer-collection="${esc(s.collectionName)}" data-offer-image="${esc(s.image || '')}" style="cursor:pointer">
+        ${s.image ? `<img class="spare-cover" src="${esc(s.image)}" loading="lazy" onerror="this.style.opacity=0.2">` : `<div class="spare-cover"></div>`}
+        <div class="spare-info">
+          <div class="spare-name">${esc(s.title)}</div>
+          ${s.rarity ? `<div class="comic-rarity rarity-${esc(s.rarity.toLowerCase())}">${esc(s.rarity)}</div>` : ''}
+          <div class="spare-meta">${esc(s.collectionName)} &middot; ${s.spareCount} spare${s.spareCount !== 1 ? 's' : ''}</div>
+        </div>
+      </div>
+    `).join('');
+  }
+  offerPickerModalEl.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+function closeOfferPickerModal(){
+  offerPickerModalEl.style.display = 'none';
+  document.body.style.overflow = '';
+}
+offerPickerModalCloseEl.addEventListener('click', closeOfferPickerModal);
+offerPickerModalBackdropEl.addEventListener('click', closeOfferPickerModal);
+offerPickerListEl.addEventListener('click', (e) => {
+  const row = e.target.closest('[data-offer-mint]');
+  if(!row || !almostSharingKey) return;
+  const almost = listAlmostCompleteKeys().find(a => a.key === almostSharingKey);
+  closeOfferPickerModal();
+  openTradeComposeModal({
+    mint: row.dataset.offerMint,
+    title: row.dataset.offerTitle,
+    rarity: row.dataset.offerRarity,
+    collectionName: row.dataset.offerCollection,
+    image: row.dataset.offerImage,
+  }, almost ? `${almost.missingRarity} tier of ${almost.name}, to complete my set` : '');
+});
+
+// Propose Trade compose modal — opened either from a Spares row (see the
+// delegated click listener on spareListEl above) with the offer already
+// fixed, or from the offer picker above with prefillWant naming the
+// specific missing rarity it's meant to fetch. Posts straight to the
+// Worker's public trade board — discovery only, nothing here moves the
+// Collectible or holds anything in escrow (see
+// zurcovers-proxy-worker.js's handleTradePost).
 let tradeComposeOffer = null;
-function openTradeComposeModal(offer){
+function openTradeComposeModal(offer, prefillWant){
   tradeComposeOffer = offer;
   tradeComposeOfferEl.innerHTML = `
     ${offer.image ? `<img class="spare-cover" src="${esc(offer.image)}" loading="lazy" onerror="this.style.opacity=0.2">` : `<div class="spare-cover"></div>`}
@@ -2159,7 +2298,7 @@ function openTradeComposeModal(offer){
       <div class="spare-meta">${esc(offer.collectionName)}</div>
     </div>
   `;
-  tradeComposeInputEl.value = '';
+  tradeComposeInputEl.value = prefillWant || '';
   tradeComposeStatusEl.textContent = '';
   tradeComposeStatusEl.className = 'trade-compose-status';
   tradeComposeSubmitEl.disabled = false;
