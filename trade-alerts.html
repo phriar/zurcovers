@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#241407">
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<link rel="manifest" href="site.webmanifest">
+<title>Trade Alerts — zurcovers</title>
+<link href="https://fonts.googleapis.com/css2?family=Bangers&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  :root{
+    --wood-dark:  #241407;
+    --wood-mid:   #3a230f;
+    --gold:   #e8b24d;
+    --cyan:   #2de6d0;
+    --paper:  #f3efe6;
+    --violet: #b79ce8;
+  }
+
+  body{
+    background:
+      repeating-linear-gradient(90deg, rgba(0,0,0,0.08) 0px, transparent 2px, transparent 26px, rgba(0,0,0,0.08) 28px),
+      linear-gradient(180deg, var(--wood-mid), var(--wood-dark) 70%);
+    color:var(--paper); min-height:100vh;
+    font-family:'DM Mono',monospace; -webkit-font-smoothing:antialiased;
+  }
+
+  #grain{
+    position:fixed; inset:0; z-index:0; pointer-events:none; opacity:0.05;
+    background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  header{
+    position:relative; z-index:1; padding:44px 32px 22px; border-bottom:3px solid rgba(0,0,0,0.35);
+    background:radial-gradient(ellipse at top, rgba(183,156,232,0.12), transparent 60%);
+  }
+  header .brand{ font-size:.85rem; letter-spacing:.4em; color:rgba(243,239,230,0.89); text-transform:uppercase; }
+  header .brand a{ color:rgba(243,239,230,0.89); text-decoration:none; }
+  header .brand a:hover{ color:var(--gold); }
+  header h1{
+    font-family:'Bangers',cursive; font-weight:400; letter-spacing:.03em;
+    font-size:clamp(2rem,6vw,3.2rem); line-height:1; margin-top:10px;
+    color:var(--violet); text-shadow:3px 3px 0 rgba(0,0,0,0.4);
+  }
+  header .sub{ margin-top:10px; font-size:.9rem; line-height:1.6; color:rgba(243,239,230,0.75); max-width:600px; }
+  .nav-links{ margin-top:14px; display:flex; gap:14px; flex-wrap:wrap; }
+  .nav-links a{ font-size:.86rem; letter-spacing:.14em; text-transform:uppercase; color:rgba(232,178,77,0.6); text-decoration:none; border:1px solid rgba(232,178,77,0.2); padding:6px 14px; border-radius:2px; transition:all .15s; }
+  .nav-links a:hover{ color:var(--gold); border-color:rgba(232,178,77,0.5); }
+
+  main{ position:relative; z-index:1; padding:24px 32px 60px; max-width:760px; margin:0 auto; }
+
+  #status{ font-size:.88rem; letter-spacing:.06em; color:rgba(243,239,230,0.7); text-transform:uppercase; margin-bottom:16px; }
+  #status.err{ color:#e8917a; }
+
+  .refresh-btn{
+    background:transparent; border:2px solid var(--violet); color:var(--violet);
+    font-family:'Bangers',cursive; font-size:.95rem; letter-spacing:.04em; text-transform:uppercase;
+    padding:8px 18px; border-radius:3px; cursor:pointer; transition:all .15s; margin-bottom:20px;
+  }
+  .refresh-btn:hover{ background:rgba(183,156,232,0.12); }
+
+  .post-list{ display:flex; flex-direction:column; gap:12px; }
+  .post-row{
+    position:relative; display:flex; align-items:center; gap:16px; padding:14px 16px; border-radius:6px;
+    background:rgba(0,0,0,0.2); border:1px solid rgba(183,156,232,0.2);
+  }
+  .post-row.is-new{ border-color:rgba(45,230,208,0.5); background:rgba(45,230,208,0.06); }
+  .new-badge{
+    position:absolute; top:-9px; right:12px; background:var(--cyan); color:var(--wood-dark);
+    font-family:'Bangers',cursive; font-size:.78rem; letter-spacing:.05em; padding:2px 10px; border-radius:10px;
+  }
+  .post-cover{
+    width:56px; aspect-ratio:2/3; object-fit:cover; border-radius:2px;
+    box-shadow:0 3px 8px rgba(0,0,0,0.4); flex-shrink:0; background:rgba(255,255,255,0.05);
+  }
+  .post-info{ flex:1; min-width:0; }
+  .post-title{ font-family:'Cormorant Garamond',serif; font-size:1.1rem; color:rgba(243,239,230,0.97); }
+  .comic-rarity{
+    display:inline-block; margin-top:4px; font-size:.72rem; letter-spacing:.08em;
+    text-transform:uppercase; padding:2px 8px; border-radius:20px; border:1px solid rgba(243,239,230,0.3); color:rgba(243,239,230,0.85);
+  }
+  .post-collection{ margin-top:4px; font-size:.8rem; color:rgba(243,239,230,0.55); }
+  .post-wants{ margin-top:6px; font-family:'Cormorant Garamond',serif; font-style:italic; font-size:.98rem; color:var(--violet); }
+  .post-meta-row{ margin-top:8px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .post-poster{ font-size:.76rem; color:rgba(243,239,230,0.5); cursor:pointer; user-select:none; }
+  .post-poster:hover{ color:var(--paper); }
+  .post-poster.copied{ color:var(--cyan); }
+  .post-age{ font-size:.76rem; color:rgba(243,239,230,0.4); }
+
+  .empty-state{ font-family:'Cormorant Garamond',serif; font-size:1.05rem; color:rgba(243,239,230,0.65); }
+</style>
+</head>
+<body>
+<div id="grain"></div>
+
+<header>
+  <div class="brand"><a href="index.html">zurcovers</a></div>
+  <h1>Trade Alerts</h1>
+  <div class="sub">Internal check-in page for new Trade Board postings — not linked from anywhere else on the site. Rows posted since your last visit here are marked NEW; refresh to check again.</div>
+  <div class="nav-links">
+    <a href="trade-board.html">Trade Board</a>
+    <a href="index.html">Home</a>
+  </div>
+</header>
+
+<main>
+  <button class="refresh-btn" id="refresh-btn">Refresh</button>
+  <div id="status">Loading&hellip;</div>
+  <div class="post-list" id="post-list"></div>
+</main>
+
+<script>
+const ME_PROXY_BASE = "https://zurcovers-proxy.stholt.workers.dev";
+const ME_BASE = ME_PROXY_BASE + "/v2";
+const LAST_SEEN_KEY = 'zc_trade_alerts_last_seen';
+
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+function shortAddr(a){ return a.length > 10 ? a.slice(0,6) + '…' + a.slice(-6) : a; }
+function timeAgo(ms){
+  const secs = Math.max(0, (Date.now() - ms) / 1000);
+  if(secs < 3600) return Math.max(1, Math.round(secs/60)) + 'm ago';
+  if(secs < 86400) return Math.round(secs/3600) + 'h ago';
+  return Math.round(secs/86400) + 'd ago';
+}
+
+document.addEventListener('click', async function(e){
+  const el = e.target.closest('[data-copy]');
+  if(!el) return;
+  try{
+    await navigator.clipboard.writeText(el.dataset.copy);
+    const original = el.textContent;
+    el.textContent = 'Copied ✓';
+    el.classList.add('copied');
+    setTimeout(function(){ el.textContent = original; el.classList.remove('copied'); }, 1500);
+  }catch(err){ /* clipboard unavailable — address still visible to select by hand */ }
+});
+
+const statusEl = document.getElementById('status');
+const postListEl = document.getElementById('post-list');
+const refreshBtnEl = document.getElementById('refresh-btn');
+
+function postRowHtml(p, isNew){
+  return `
+    <div class="post-row${isNew ? ' is-new' : ''}">
+      ${isNew ? '<div class="new-badge">NEW</div>' : ''}
+      ${p.offerImage ? `<img class="post-cover" src="${esc(p.offerImage)}" loading="lazy" onerror="this.style.opacity=0.2">` : `<div class="post-cover"></div>`}
+      <div class="post-info">
+        <div class="post-title">${esc(p.offerTitle || 'Unknown comic')}</div>
+        ${p.offerRarity ? `<div class="comic-rarity">${esc(p.offerRarity)}</div>` : ''}
+        <div class="post-collection">${esc(p.offerCollectionName || '')}</div>
+        <div class="post-wants">Wants: ${esc(p.wantText)}</div>
+        <div class="post-meta-row">
+          <span class="post-poster" data-copy="${esc(p.posterWallet)}" role="button" tabindex="0" title="Click to copy full address">&#9678; ${esc(shortAddr(p.posterWallet))}</span>
+          <span class="post-age">${esc(timeAgo(p.postedAt))}</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function loadPostings(){
+  statusEl.textContent = 'Loading…';
+  statusEl.className = '';
+  try{
+    const res = await fetch(`${ME_BASE}/trade-posts`);
+    if(!res.ok) throw new Error('bad response');
+    const data = await res.json();
+    const postings = Array.isArray(data.postings) ? data.postings : [];
+    const lastSeen = parseInt(localStorage.getItem(LAST_SEEN_KEY) || '0', 10);
+    const newCount = postings.filter(p => p.postedAt > lastSeen).length;
+
+    if(postings.length === 0){
+      postListEl.innerHTML = '';
+      statusEl.textContent = 'No open trade posts right now.';
+    } else {
+      statusEl.textContent = `${postings.length} open post${postings.length !== 1 ? 's' : ''}` + (newCount > 0 ? ` · ${newCount} new since last visit` : '');
+      postListEl.innerHTML = postings.map(p => postRowHtml(p, p.postedAt > lastSeen)).join('');
+    }
+
+    // Marks everything currently loaded as "seen" — a postedAt strictly
+    // greater than this only shows up if it's posted after this exact
+    // load, not merely after whenever localStorage last got touched.
+    const newest = postings.reduce((max, p) => Math.max(max, p.postedAt || 0), lastSeen);
+    localStorage.setItem(LAST_SEEN_KEY, String(newest));
+  }catch(e){
+    statusEl.textContent = "Couldn't load trade posts — try refreshing.";
+    statusEl.className = 'err';
+  }
+}
+
+refreshBtnEl.addEventListener('click', loadPostings);
+loadPostings();
+</script>
+</body>
+</html>
