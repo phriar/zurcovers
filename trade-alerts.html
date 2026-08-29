@@ -93,6 +93,12 @@
   .post-poster:hover{ color:var(--paper); }
   .post-poster.copied{ color:var(--cyan); }
   .post-age{ font-size:.76rem; color:rgba(243,239,230,0.4); }
+  .post-share{
+    margin-left:auto; font-size:.76rem; letter-spacing:.05em; text-transform:uppercase;
+    color:var(--cyan); text-decoration:none; border:1px solid rgba(45,230,208,0.35); padding:4px 10px; border-radius:20px;
+    white-space:nowrap;
+  }
+  .post-share:hover{ background:rgba(45,230,208,0.1); }
 
   .empty-state{ font-family:'Cormorant Garamond',serif; font-size:1.05rem; color:rgba(243,239,230,0.65); }
 </style>
@@ -146,6 +152,15 @@ const statusEl = document.getElementById('status');
 const postListEl = document.getElementById('post-list');
 const refreshBtnEl = document.getElementById('refresh-btn');
 
+// X's Web Intent URL — no API key, no OAuth, just a link that opens X
+// with this text pre-filled in the compose box. You still hit Post
+// yourself, so nothing tweets automatically (see the earlier decision to
+// keep a human in the loop rather than auto-post free-form poster text).
+function tweetIntentUrl(p){
+  const text = `New trade post: ${p.offerTitle}${p.offerRarity ? ` (${p.offerRarity})` : ''} — wants "${p.wantText}"`;
+  return `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent('https://zurcovers.com/trade-board.html')}`;
+}
+
 function postRowHtml(p, isNew){
   return `
     <div class="post-row${isNew ? ' is-new' : ''}">
@@ -159,6 +174,7 @@ function postRowHtml(p, isNew){
         <div class="post-meta-row">
           <span class="post-poster" data-copy="${esc(p.posterWallet)}" role="button" tabindex="0" title="Click to copy full address">&#9678; ${esc(shortAddr(p.posterWallet))}</span>
           <span class="post-age">${esc(timeAgo(p.postedAt))}</span>
+          <a class="post-share" href="${esc(tweetIntentUrl(p))}" target="_blank" rel="noopener">Share on X &#8599;</a>
         </div>
       </div>
     </div>
