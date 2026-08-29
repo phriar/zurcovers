@@ -93,8 +93,14 @@
   .post-poster:hover{ color:var(--paper); }
   .post-poster.copied{ color:var(--cyan); }
   .post-age{ font-size:.76rem; color:rgba(243,239,230,0.4); }
-  .post-share{
+  .post-open-cover{
     margin-left:auto; font-size:.76rem; letter-spacing:.05em; text-transform:uppercase;
+    color:var(--gold); text-decoration:none; border:1px solid rgba(232,178,77,0.35); padding:4px 10px; border-radius:20px;
+    white-space:nowrap;
+  }
+  .post-open-cover:hover{ background:rgba(232,178,77,0.1); }
+  .post-share{
+    font-size:.76rem; letter-spacing:.05em; text-transform:uppercase;
     color:var(--cyan); text-decoration:none; border:1px solid rgba(45,230,208,0.35); padding:4px 10px; border-radius:20px;
     white-space:nowrap;
   }
@@ -174,6 +180,7 @@ function postRowHtml(p, isNew){
         <div class="post-meta-row">
           <span class="post-poster" data-copy="${esc(p.posterWallet)}" role="button" tabindex="0" title="Click to copy full address">&#9678; ${esc(shortAddr(p.posterWallet))}</span>
           <span class="post-age">${esc(timeAgo(p.postedAt))}</span>
+          ${p.offerImage ? `<a class="post-open-cover" href="${esc(p.offerImage)}" target="_blank" rel="noopener">Open Cover &#8599;</a>` : ''}
           <a class="post-share" href="${esc(tweetIntentUrl(p))}" target="_blank" rel="noopener">Share on X &#8599;</a>
         </div>
       </div>
