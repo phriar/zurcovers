@@ -90,6 +90,7 @@
   .comic-rarity.rarity-legendary{ color:var(--gold); border-color:rgba(232,178,77,0.5); }
   .post-collection{ margin-top:4px; font-size:.82rem; color:rgba(243,239,230,0.6); }
   .post-wants{ margin-top:6px; font-family:'Cormorant Garamond',serif; font-style:italic; font-size:1rem; color:var(--violet); }
+  .post-contact{ margin-top:4px; font-size:.85rem; color:var(--cyan); }
   .post-meta-row{ margin-top:8px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
   .post-poster{
     font-size:.78rem; letter-spacing:.02em; color:rgba(243,239,230,0.55); cursor:pointer; user-select:none;
@@ -212,6 +213,7 @@ function postRowHtml(p){
         ${p.offerRarity ? `<div class="comic-rarity rarity-${esc(p.offerRarity.toLowerCase())}">${esc(p.offerRarity)}</div>` : ''}
         <div class="post-collection">${esc(p.offerCollectionName || '')}</div>
         <div class="post-wants">Wants: ${esc(p.wantText)}</div>
+        ${p.contactInfo ? `<div class="post-contact">&#9993; ${esc(p.contactInfo)}</div>` : ''}
         <div class="post-meta-row">
           <span class="post-poster" data-tip-copy="${esc(p.posterWallet)}" role="button" tabindex="0" title="Click to copy full address">&#9678; ${esc(shortAddr(p.posterWallet))}</span>
           <span class="post-age">${esc(timeAgo(p.postedAt))}</span>

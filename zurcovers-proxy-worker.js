@@ -594,6 +594,11 @@ async function handleTradePost(request, env, ctx, corsHeaders, ip) {
     offerCollectionName: tradePostField(payload?.offerCollectionName, 200),
     offerImage: tradePostField(payload?.offerImage, 2000),
     wantText,
+    // Optional — the wallet address is already a guaranteed contact
+    // method (shown on every posting), this just gives posters a faster
+    // real-world way to be reached than a stranger DMing an anonymous
+    // address. Never required, unlike wantText.
+    contactInfo: tradePostField(payload?.contactInfo, 100).trim(),
     postedAt: Date.now(),
   };
   const key = `tradepost:${posting.postedAt}-${crypto.randomUUID().slice(0, 8)}`;

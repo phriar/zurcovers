@@ -88,6 +88,7 @@
   }
   .post-collection{ margin-top:4px; font-size:.8rem; color:rgba(243,239,230,0.55); }
   .post-wants{ margin-top:6px; font-family:'Cormorant Garamond',serif; font-style:italic; font-size:.98rem; color:var(--violet); }
+  .post-contact{ margin-top:4px; font-size:.83rem; color:var(--cyan); }
   .post-meta-row{ margin-top:8px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
   .post-poster{ font-size:.76rem; color:rgba(243,239,230,0.5); cursor:pointer; user-select:none; }
   .post-poster:hover{ color:var(--paper); }
@@ -177,6 +178,7 @@ function postRowHtml(p, isNew){
         ${p.offerRarity ? `<div class="comic-rarity">${esc(p.offerRarity)}</div>` : ''}
         <div class="post-collection">${esc(p.offerCollectionName || '')}</div>
         <div class="post-wants">Wants: ${esc(p.wantText)}</div>
+        ${p.contactInfo ? `<div class="post-contact">&#9993; ${esc(p.contactInfo)}</div>` : ''}
         <div class="post-meta-row">
           <span class="post-poster" data-copy="${esc(p.posterWallet)}" role="button" tabindex="0" title="Click to copy full address">&#9678; ${esc(shortAddr(p.posterWallet))}</span>
           <span class="post-age">${esc(timeAgo(p.postedAt))}</span>

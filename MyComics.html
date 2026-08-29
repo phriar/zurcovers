@@ -278,6 +278,7 @@
   .trade-compose-offer{ display:flex; align-items:center; gap:14px; padding:10px 12px; border-radius:4px; background:rgba(0,0,0,0.15); border:1px solid rgba(243,239,230,0.08); margin-top:12px; }
   .trade-compose-offer .spare-cover{ width:52px; }
   .trade-compose-label{ margin-top:18px; font-family:'DM Mono',monospace; font-size:.82rem; letter-spacing:.05em; text-transform:uppercase; color:rgba(243,239,230,0.75); }
+  .trade-compose-optional{ text-transform:none; letter-spacing:0; color:rgba(243,239,230,0.45); font-size:.78rem; }
   .trade-compose-input{
     width:100%; margin-top:8px; background:rgba(0,0,0,0.35); border:1px solid rgba(243,239,230,0.15); color:var(--paper);
     font-family:'DM Mono',monospace; font-size:.92rem; padding:10px 12px; border-radius:3px; box-sizing:border-box;
@@ -662,10 +663,12 @@
   <div class="copies-modal-panel" role="dialog" aria-modal="true" aria-labelledby="trade-compose-modal-title">
     <button class="copies-modal-close" id="trade-compose-modal-close" aria-label="Close">&times;</button>
     <div class="copies-modal-title" id="trade-compose-modal-title">Step 3 of 3 &mdash; Confirm &amp; Post</div>
-    <div class="spares-summary">This spare gets posted to the public Trade Board — no wallet connection, nothing moves automatically. Interested collectors reach out to your wallet address directly to work out the swap.</div>
+    <div class="spares-summary">This spare gets posted to the public Trade Board — no wallet connection, nothing moves automatically. Interested collectors can reach you by wallet address, or however you list below.</div>
     <div class="trade-compose-offer" id="trade-compose-offer"></div>
     <label class="trade-compose-label" for="trade-compose-input">What you're asking for (edit if you like):</label>
     <input type="text" class="trade-compose-input" id="trade-compose-input" maxlength="200" placeholder="e.g. a Rare copy of Detective Comics #27, or open to offers">
+    <label class="trade-compose-label" for="trade-compose-contact">How can people reach you? <span class="trade-compose-optional">(optional — your wallet address always shows too)</span></label>
+    <input type="text" class="trade-compose-input" id="trade-compose-contact" maxlength="100" placeholder="Discord, X handle, email…">
     <button class="trade-compose-submit" id="trade-compose-submit">Post to Trade Board</button>
     <div class="trade-compose-status" id="trade-compose-status"></div>
     <a class="trade-compose-link" href="trade-board.html" target="_blank" rel="noopener">See what others are offering &#8599;</a>
@@ -714,6 +717,7 @@ document.querySelectorAll('[data-tip-copy]').forEach(function(el){
 const ME_PROXY_BASE = "https://zurcovers-proxy.stholt.workers.dev";
 const ME_BASE = ME_PROXY_BASE + "/v2";
 const WALLET_KEY = 'zurcovers_wallet';
+const TRADE_CONTACT_KEY = 'zurcovers_trade_contact'; // remembered locally so it doesn't need retyping on every trade post
 const SOL_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const LOOKUP_PACE_MS = 900; // same pacing discover.html uses against Magic Eden's per-minute rate limit
 const EAGER_BATCH_SIZE = 5; // collections processed concurrently per paced "tick" in the eager loading loop — see loadWallet
@@ -785,6 +789,7 @@ const tradeComposeModalBackdropEl = document.getElementById('trade-compose-modal
 const tradeComposeModalCloseEl = document.getElementById('trade-compose-modal-close');
 const tradeComposeOfferEl = document.getElementById('trade-compose-offer');
 const tradeComposeInputEl = document.getElementById('trade-compose-input');
+const tradeComposeContactEl = document.getElementById('trade-compose-contact');
 const tradeComposeSubmitEl = document.getElementById('trade-compose-submit');
 const tradeComposeStatusEl = document.getElementById('trade-compose-status');
 const flexCardModalEl = document.getElementById('flex-card-modal');
@@ -2272,6 +2277,7 @@ function openTradeComposeModal(offer, prefillWant){
     </div>
   `;
   tradeComposeInputEl.value = prefillWant || '';
+  tradeComposeContactEl.value = localStorage.getItem(TRADE_CONTACT_KEY) || '';
   tradeComposeStatusEl.textContent = '';
   tradeComposeStatusEl.className = 'trade-compose-status';
   tradeComposeSubmitEl.disabled = false;
@@ -2295,6 +2301,7 @@ async function submitTradePost(){
     return;
   }
   if(!tradeComposeOffer || !currentWalletAddress) return;
+  const contactInfo = tradeComposeContactEl.value.trim();
   tradeComposeSubmitEl.disabled = true;
   tradeComposeSubmitEl.textContent = 'Posting…';
   tradeComposeStatusEl.textContent = '';
@@ -2311,6 +2318,7 @@ async function submitTradePost(){
         offerCollectionName: tradeComposeOffer.collectionName,
         offerImage: tradeComposeOffer.image,
         wantText,
+        contactInfo,
       }),
     });
     if(!res.ok){
@@ -2321,6 +2329,7 @@ async function submitTradePost(){
         ? 'Too many posts from this connection recently — try again in a bit.'
         : "Couldn't post that trade — try again.");
     }
+    if(contactInfo) localStorage.setItem(TRADE_CONTACT_KEY, contactInfo);
     tradeComposeStatusEl.textContent = 'Posted! Visible on the Trade Board now.';
     tradeComposeStatusEl.className = 'trade-compose-status success';
     tradeComposeSubmitEl.textContent = 'Posted';
