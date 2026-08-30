@@ -169,6 +169,17 @@ const WALLET_ASSET_MAX_PAGES = 10; // Helius getAssetsByOwner, 1000/page — sam
 const TRADE_POST_TTL_SECONDS = 60 * 60 * 24 * 14;
 const TRADE_POST_RATE_LIMIT_PER_HOUR = 20; // per IP, only counted when the ownership check misses the wallet-assets cache
 
+// BUY OFFERS — POST /v2/buy-offer, GET /v2/buy-offers. Same discovery-only
+// principle as the trade board above, but for a 1/1: there's no such thing
+// as a "spare" of a unique mint, so a collector hunting one has nothing to
+// offer in trade — only SOL. Unlike a trade posting, a buy offer makes no
+// ownership claim about anything the poster holds, so there's no free
+// wallet-assets-cache check to piggyback on; every submission costs a
+// rate-limit slot up front.
+const BUY_OFFER_TTL_SECONDS = TRADE_POST_TTL_SECONDS;
+const BUY_OFFER_RATE_LIMIT_PER_HOUR = 10; // per IP — lower than trade posts since every call counts, not just cache misses
+const BUY_OFFER_MAX_SOL = 100000; // sanity cap, not a real market bound
+
 // Was an allow-list of "NFT-ish" interface values — any interface type
 // Helius returned that wasn't on that specific list got silently
 // excluded from results, a confirmed real cause of users reporting
@@ -623,6 +634,82 @@ async function handleTradePosts(env, corsHeaders) {
   });
 }
 
+function parseSolAmount(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0 || n > BUY_OFFER_MAX_SOL) return null;
+  return Math.round(n * 1e6) / 1e6;
+}
+
+async function handleBuyOffer(request, env, ctx, corsHeaders, ip) {
+  let payload;
+  try {
+    payload = JSON.parse(await request.text());
+  } catch {
+    return new Response(JSON.stringify({ error: "invalid_body" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const buyerWallet = String(payload?.buyerWallet || "").trim();
+  if (!SOL_ADDRESS_RE.test(buyerWallet)) {
+    return new Response(JSON.stringify({ error: "invalid_address" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+  const wantText = tradePostField(payload?.wantText, 200).trim();
+  if (!wantText) {
+    return new Response(JSON.stringify({ error: "invalid_want_text" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+  const offerSol = parseSolAmount(payload?.offerSol);
+  if (offerSol === null) {
+    return new Response(JSON.stringify({ error: "invalid_offer_amount" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const allowed = await checkAndBumpRateLimit(ip, env, "buyoffer", BUY_OFFER_RATE_LIMIT_PER_HOUR);
+  if (!allowed) {
+    return new Response(JSON.stringify({ error: "rate_limited", retryAfterSeconds: 3600 }), {
+      status: 429,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const offer = {
+    buyerWallet,
+    wantText,
+    offerSol,
+    contactInfo: tradePostField(payload?.contactInfo, 100).trim(),
+    postedAt: Date.now(),
+  };
+  const key = `buyoffer:${offer.postedAt}-${crypto.randomUUID().slice(0, 8)}`;
+  await env.ZURCOVERS_CACHE.put(key, JSON.stringify(offer), { expirationTtl: BUY_OFFER_TTL_SECONDS });
+
+  return new Response(null, { status: 204, headers: corsHeaders });
+}
+
+async function handleBuyOffers(env, corsHeaders) {
+  const offers = [];
+  let cursor;
+  do {
+    const page = await env.ZURCOVERS_CACHE.list({ prefix: "buyoffer:", cursor, limit: 1000 });
+    const values = await Promise.all(page.keys.map((k) => env.ZURCOVERS_CACHE.get(k.name, "json")));
+    for (const v of values) if (v) offers.push(v);
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  offers.sort((a, b) => (b.postedAt || 0) - (a.postedAt || 0));
+  return new Response(JSON.stringify({ offers, retentionDays: BUY_OFFER_TTL_SECONDS / 86400 }), {
+    status: 200,
+    headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" },
+  });
+}
+
 // collectionKey comes straight from the URL path — restricted to a
 // conservative charset before it ever touches a KV key or an RPC call,
 // same defensive habit as click-log's sanitize() above. Base58 addresses
@@ -1014,6 +1101,14 @@ export default {
     }
     if (url.pathname === "/v2/trade-posts" && request.method === "GET") {
       return handleTradePosts(env, corsHeaders);
+    }
+
+    // BUY OFFERS — see handleBuyOffer/handleBuyOffers above.
+    if (url.pathname === "/v2/buy-offer" && request.method === "POST") {
+      return handleBuyOffer(request, env, ctx, corsHeaders, ip);
+    }
+    if (url.pathname === "/v2/buy-offers" && request.method === "GET") {
+      return handleBuyOffers(env, corsHeaders);
     }
 
     // Generic pass-through proxy + edge cache, same as ZurVault's Worker.

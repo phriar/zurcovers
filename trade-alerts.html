@@ -108,6 +108,19 @@
   .post-share:hover{ background:rgba(45,230,208,0.1); }
 
   .empty-state{ font-family:'Cormorant Garamond',serif; font-size:1.05rem; color:rgba(243,239,230,0.65); }
+
+  h2.section-title{ font-family:'Bangers',cursive; font-weight:400; font-size:1.3rem; color:var(--gold); margin:28px 0 12px; }
+  .offer-row{
+    position:relative; display:flex; align-items:center; gap:14px; padding:14px 16px; border-radius:6px;
+    background:rgba(0,0,0,0.2); border:1px solid rgba(232,178,77,0.25);
+  }
+  .offer-row.is-new{ border-color:rgba(45,230,208,0.5); background:rgba(45,230,208,0.06); }
+  .offer-amount{ font-family:'Bangers',cursive; font-size:1.2rem; color:var(--gold); white-space:nowrap; text-align:center; min-width:80px; }
+  .offer-amount span{ display:block; font-family:inherit; font-size:.6rem; letter-spacing:.1em; color:rgba(243,239,230,0.5); text-transform:uppercase; font-family:'DM Mono',monospace; }
+  .offer-info{ flex:1; min-width:0; }
+  .offer-want{ font-family:'Cormorant Garamond',serif; font-size:1.1rem; color:rgba(243,239,230,0.97); }
+  .offer-contact{ margin-top:4px; font-size:.83rem; color:var(--cyan); }
+  .offer-meta-row{ margin-top:8px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
 </style>
 </head>
 <body>
@@ -125,8 +138,12 @@
 
 <main>
   <button class="refresh-btn" id="refresh-btn">Refresh</button>
+  <h2 class="section-title">Trade Posts</h2>
   <div id="status">Loading&hellip;</div>
   <div class="post-list" id="post-list"></div>
+  <h2 class="section-title">Buy Offers</h2>
+  <div id="offer-status">Loading&hellip;</div>
+  <div class="post-list" id="offer-list"></div>
 </main>
 
 <script>
@@ -220,8 +237,60 @@ async function loadPostings(){
   }
 }
 
-refreshBtnEl.addEventListener('click', loadPostings);
+refreshBtnEl.addEventListener('click', function(){ loadPostings(); loadOffers(); });
 loadPostings();
+
+// --- Buy Offers ---------------------------------------------------------
+
+const offerStatusEl = document.getElementById('offer-status');
+const offerListEl = document.getElementById('offer-list');
+const OFFER_LAST_SEEN_KEY = 'zc_buy_offer_alerts_last_seen';
+
+function offerRowHtml(o, isNew){
+  return `
+    <div class="offer-row${isNew ? ' is-new' : ''}">
+      ${isNew ? '<div class="new-badge">NEW</div>' : ''}
+      <div class="offer-amount">${esc(o.offerSol)}<span>SOL</span></div>
+      <div class="offer-info">
+        <div class="offer-want">Wants: ${esc(o.wantText)}</div>
+        ${o.contactInfo ? `<div class="offer-contact">&#9993; ${esc(o.contactInfo)}</div>` : ''}
+        <div class="offer-meta-row">
+          <span class="post-poster" data-copy="${esc(o.buyerWallet)}" role="button" tabindex="0" title="Click to copy full address">&#9678; ${esc(shortAddr(o.buyerWallet))}</span>
+          <span class="post-age">${esc(timeAgo(o.postedAt))}</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function loadOffers(){
+  offerStatusEl.textContent = 'Loading…';
+  offerStatusEl.className = '';
+  try{
+    const res = await fetch(`${ME_BASE}/buy-offers`);
+    if(!res.ok) throw new Error('bad response');
+    const data = await res.json();
+    const offers = Array.isArray(data.offers) ? data.offers : [];
+    const lastSeen = parseInt(localStorage.getItem(OFFER_LAST_SEEN_KEY) || '0', 10);
+    const newCount = offers.filter(o => o.postedAt > lastSeen).length;
+
+    if(offers.length === 0){
+      offerListEl.innerHTML = '';
+      offerStatusEl.textContent = 'No open buy offers right now.';
+    } else {
+      offerStatusEl.textContent = `${offers.length} open offer${offers.length !== 1 ? 's' : ''}` + (newCount > 0 ? ` · ${newCount} new since last visit` : '');
+      offerListEl.innerHTML = offers.map(o => offerRowHtml(o, o.postedAt > lastSeen)).join('');
+    }
+
+    const newest = offers.reduce((max, o) => Math.max(max, o.postedAt || 0), lastSeen);
+    localStorage.setItem(OFFER_LAST_SEEN_KEY, String(newest));
+  }catch(e){
+    offerStatusEl.textContent = "Couldn't load buy offers — try refreshing.";
+    offerStatusEl.className = 'err';
+  }
+}
+
+loadOffers();
 </script>
 </body>
 </html>
