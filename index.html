@@ -90,7 +90,7 @@
     font-size:.88rem; line-height:1.6; color:rgba(243,239,230,0.91); text-align:left;
   }
 
-  .more-views{ margin-top:6px; }
+  .more-views{ margin-top:22px; }
   .more-views .label{
     font-size:.88rem; letter-spacing:.18em; text-transform:uppercase; color:rgba(243,239,230,0.88);
     margin-bottom:12px;
@@ -109,10 +109,11 @@
     margin-top:4px; font-size:.88rem; line-height:1.5; color:rgba(243,239,230,0.9);
   }
   /* No-wallet section — Trade Board isn't a "deeper view of the same
-     wallet" like Slideshow/Quests above it, so it gets its own labeled
+     wallet" like Quests/Slideshow below it, so it gets its own labeled
      group rather than sitting inside one implying it needs an address.
-     Violet instead of gold for the same reason. */
-  .no-wallet-views{ margin-top:22px; }
+     Violet instead of gold for the same reason. Placed first/above per
+     2026-08 direction — Slideshow specifically pushed to the bottom. */
+  .no-wallet-views{ margin-top:6px; }
   .no-wallet-views .label{
     font-size:.88rem; letter-spacing:.18em; text-transform:uppercase; color:rgba(243,239,230,0.88);
     margin-bottom:12px;
@@ -186,26 +187,26 @@
     Unofficial fan project &mdash; not affiliated with, endorsed by, or sponsored by DC Comics, Warner Bros. Discovery, or Candy Digital. It only ever reads a public wallet address you provide; it never requests a wallet connection and cannot move, sell, or modify anything you own.
   </div>
 
-  <div class="more-views">
-    <div class="label">Deeper views, same wallet</div>
-    <div class="page-list">
-      <a class="page-card" href="slideshow.html">
-        <div class="page-name">Slideshow &#8599;</div>
-        <div class="page-desc">Full-screen kiosk playback, collection picker and shuffle, attributes on every frame.</div>
-      </a>
-      <a class="page-card" href="quests.html">
-        <div class="page-name">Quests &#8599;</div>
-        <div class="page-desc">See which of Candy Digital's weekly quests this wallet has already completed.</div>
-      </a>
-    </div>
-  </div>
-
   <div class="no-wallet-views">
     <div class="label">No wallet needed</div>
     <div class="page-list">
       <a class="page-card no-wallet" href="trade-board.html">
         <div class="page-name">Trade Board &#8599;</div>
         <div class="page-desc">Browse spare comics other collectors are open to trading. Just looking? No wallet address required.</div>
+      </a>
+    </div>
+  </div>
+
+  <div class="more-views">
+    <div class="label">Deeper views, same wallet</div>
+    <div class="page-list">
+      <a class="page-card" href="quests.html">
+        <div class="page-name">Quests &#8599;</div>
+        <div class="page-desc">See which of Candy Digital's weekly quests this wallet has already completed.</div>
+      </a>
+      <a class="page-card" href="slideshow.html">
+        <div class="page-name">Slideshow &#8599;</div>
+        <div class="page-desc">Full-screen kiosk playback, collection picker and shuffle, attributes on every frame.</div>
       </a>
     </div>
   </div>
