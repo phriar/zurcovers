@@ -188,6 +188,11 @@ function tweetIntentUrl(p){
   const text = `New trade post: ${p.offerTitle}${p.offerRarity ? ` (${p.offerRarity})` : ''} — wants "${p.wantText}"`;
   return `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent('https://zurcovers.com/trade-board.html')}`;
 }
+function offerTweetIntentUrl(o){
+  const item = o.wantTitle || o.wantText;
+  const text = `New buy offer: ${o.offerSol} SOL for ${item}${o.wantRarity ? ` (${o.wantRarity})` : ''}`;
+  return `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent('https://zurcovers.com/trade-board.html')}`;
+}
 
 function postRowHtml(p, isNew){
   return `
@@ -266,6 +271,7 @@ function offerRowHtml(o, isNew){
           <span class="post-poster" data-copy="${esc(o.buyerWallet)}" role="button" tabindex="0" title="Click to copy full address">&#9678; ${esc(shortAddr(o.buyerWallet))}</span>
           <span class="post-age">${esc(timeAgo(o.postedAt))}</span>
           ${meLink}
+          <a class="post-share" href="${esc(offerTweetIntentUrl(o))}" target="_blank" rel="noopener">Share on X &#8599;</a>
         </div>
       </div>
     </div>
