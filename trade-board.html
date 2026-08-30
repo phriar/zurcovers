@@ -68,6 +68,19 @@
     display:flex; align-items:center; gap:14px; padding:14px 16px; border-radius:6px;
     background:rgba(0,0,0,0.2); border:1px solid rgba(232,178,77,0.25);
   }
+  .offer-cover{
+    width:52px; aspect-ratio:2/3; object-fit:cover; border-radius:2px;
+    box-shadow:0 3px 8px rgba(0,0,0,0.4); flex-shrink:0; background:rgba(255,255,255,0.05);
+  }
+  .offer-preview{
+    margin-top:10px; display:flex; align-items:center; gap:12px; padding:10px; border-radius:4px;
+    background:rgba(0,0,0,0.25); border:1px solid rgba(45,230,208,0.3);
+  }
+  .offer-preview img{ width:44px; aspect-ratio:2/3; object-fit:cover; border-radius:2px; flex-shrink:0; }
+  .offer-preview .op-info{ flex:1; min-width:0; font-size:.82rem; }
+  .offer-preview .op-title{ color:rgba(243,239,230,0.95); }
+  .offer-preview .op-sub{ margin-top:2px; color:rgba(243,239,230,0.55); font-size:.76rem; }
+  .offer-preview.err{ border-color:rgba(232,145,122,0.4); color:#e8917a; font-size:.82rem; }
   .offer-amount{
     font-family:'Bangers',cursive; font-size:1.3rem; color:var(--gold); white-space:nowrap; text-align:center; min-width:88px;
   }
@@ -232,6 +245,12 @@
       <input type="text" id="buy-offer-wallet" placeholder="Your public Solana wallet" autocapitalize="off" autocorrect="off" spellcheck="false">
     </div>
     <div class="modal-field">
+      <label for="buy-offer-me-link">Magic Eden link (optional, recommended)</label>
+      <input type="text" id="buy-offer-me-link" placeholder="Paste the item's magiceden.io/item-details/... link" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <div class="hint">If this is a 1/1 or a specific mint you found, paste its link — we'll pull the cover so people can confirm it's the right one.</div>
+      <div id="buy-offer-preview" class="offer-preview" style="display:none"></div>
+    </div>
+    <div class="modal-field">
       <label for="buy-offer-want">What are you looking for</label>
       <input type="text" id="buy-offer-want" placeholder="e.g. Bat Cowl — any print/serial" autocapitalize="off" autocorrect="off" spellcheck="false">
     </div>
@@ -355,25 +374,97 @@ const buyOfferModalEl = document.getElementById('buy-offer-modal');
 const openBuyOfferBtnEl = document.getElementById('open-buy-offer-btn');
 const buyOfferModalCloseEl = document.getElementById('buy-offer-modal-close');
 const buyOfferWalletEl = document.getElementById('buy-offer-wallet');
+const buyOfferMeLinkEl = document.getElementById('buy-offer-me-link');
+const buyOfferPreviewEl = document.getElementById('buy-offer-preview');
 const buyOfferWantEl = document.getElementById('buy-offer-want');
 const buyOfferAmountEl = document.getElementById('buy-offer-amount');
 const buyOfferContactEl = document.getElementById('buy-offer-contact');
 const buyOfferSubmitEl = document.getElementById('buy-offer-submit');
 const buyOfferStatusEl = document.getElementById('buy-offer-status');
 
+// Resolved metadata for whatever ME link is currently in the field, if any
+// — cleared whenever the link changes so a stale preview never gets
+// attached to a different (or removed) link.
+let resolvedWant = null;
+
+function extractMintFromMeLink(v){
+  const m = String(v || '').match(/item-details\/([1-9A-HJ-NP-Za-km-z]{32,44})/);
+  return m ? m[1] : null;
+}
+
+function findRarity(attributes){
+  const attr = (attributes || []).find(a => /^rarity$/i.test(a?.trait_type || ''));
+  if(!attr) return null;
+  const v = String(attr.value || '').trim();
+  return v ? v.charAt(0).toUpperCase() + v.slice(1).toLowerCase() : null;
+}
+
+let meLinkLookupToken = 0;
+async function lookupMeLink(){
+  const mint = extractMintFromMeLink(buyOfferMeLinkEl.value);
+  resolvedWant = null;
+  if(!mint){
+    buyOfferPreviewEl.style.display = 'none';
+    buyOfferPreviewEl.className = 'offer-preview';
+    return;
+  }
+  const token = ++meLinkLookupToken;
+  buyOfferPreviewEl.style.display = 'block';
+  buyOfferPreviewEl.className = 'offer-preview';
+  buyOfferPreviewEl.innerHTML = 'Looking up cover&hellip;';
+  try{
+    const res = await fetch(`${ME_BASE}/tokens/${mint}`);
+    if(token !== meLinkLookupToken) return; // a newer link was pasted since this fetch started
+    if(!res.ok) throw new Error('not found');
+    const data = await res.json();
+    resolvedWant = {
+      wantMint: mint,
+      wantTitle: data.name || '',
+      wantCollectionName: data.collectionName || '',
+      wantImage: data.image || '',
+      wantRarity: findRarity(data.attributes) || '',
+    };
+    buyOfferPreviewEl.innerHTML = `
+      ${resolvedWant.wantImage ? `<img src="${esc(resolvedWant.wantImage)}" loading="lazy">` : ''}
+      <div class="op-info">
+        <div class="op-title">${esc(resolvedWant.wantTitle || 'Unknown comic')}</div>
+        <div class="op-sub">${esc(resolvedWant.wantCollectionName || '')}${resolvedWant.wantRarity ? ' · ' + esc(resolvedWant.wantRarity) : ''} — is this the right one?</div>
+      </div>
+    `;
+    if(!buyOfferWantEl.value.trim() && resolvedWant.wantTitle){
+      buyOfferWantEl.value = resolvedWant.wantTitle + (resolvedWant.wantRarity ? ` (${resolvedWant.wantRarity})` : '');
+    }
+  }catch(e){
+    if(token !== meLinkLookupToken) return;
+    buyOfferPreviewEl.className = 'offer-preview err';
+    buyOfferPreviewEl.innerHTML = "Couldn't resolve that link — you can still post without it.";
+  }
+}
+let meLinkDebounce;
+buyOfferMeLinkEl.addEventListener('input', function(){
+  resolvedWant = null;
+  clearTimeout(meLinkDebounce);
+  meLinkDebounce = setTimeout(lookupMeLink, 500);
+});
+
 const BUY_OFFER_WALLET_KEY = 'zc_buy_offer_wallet';
 const BUY_OFFER_CONTACT_KEY = 'zc_buy_offer_contact';
 
 function offerRowHtml(o){
+  const meLink = o.wantMint ? `<a class="post-me-link" href="${esc('https://magiceden.io/item-details/' + o.wantMint)}" target="_blank" rel="noopener">View on Magic Eden &#8599;</a>` : '';
   return `
     <div class="offer-row">
+      ${o.wantImage ? `<img class="offer-cover" src="${esc(o.wantImage)}" loading="lazy" onerror="this.style.opacity=0.2">` : ''}
       <div class="offer-amount">${esc(o.offerSol)}<span>SOL</span></div>
       <div class="offer-info">
         <div class="offer-want">Wants: ${esc(o.wantText)}</div>
+        ${o.wantTitle ? `<div class="post-collection">${esc(o.wantTitle)}${o.wantCollectionName ? ' — ' + esc(o.wantCollectionName) : ''}</div>` : ''}
+        ${o.wantRarity ? `<div class="comic-rarity rarity-${esc(o.wantRarity.toLowerCase())}">${esc(o.wantRarity)}</div>` : ''}
         ${o.contactInfo ? `<div class="offer-contact">&#9993; ${esc(o.contactInfo)}</div>` : ''}
         <div class="offer-meta-row">
           <span class="post-poster" data-tip-copy="${esc(o.buyerWallet)}" role="button" tabindex="0" title="Click to copy full address">&#9678; ${esc(shortAddr(o.buyerWallet))}</span>
           <span class="post-age">${esc(timeAgo(o.postedAt))}</span>
+          ${meLink}
         </div>
       </div>
     </div>
@@ -403,6 +494,10 @@ async function loadOffers(){
 
 function openBuyOfferModal(){
   buyOfferWalletEl.value = localStorage.getItem(BUY_OFFER_WALLET_KEY) || '';
+  buyOfferMeLinkEl.value = '';
+  buyOfferPreviewEl.style.display = 'none';
+  buyOfferPreviewEl.className = 'offer-preview';
+  resolvedWant = null;
   buyOfferWantEl.value = '';
   buyOfferAmountEl.value = '';
   buyOfferContactEl.value = localStorage.getItem(BUY_OFFER_CONTACT_KEY) || '';
@@ -452,7 +547,7 @@ async function submitBuyOffer(){
     const res = await fetch(`${ME_BASE}/buy-offer`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ buyerWallet, wantText, offerSol, contactInfo }),
+      body: JSON.stringify({ buyerWallet, wantText, offerSol, contactInfo, ...(resolvedWant || {}) }),
     });
     if(!res.ok){
       const body = await res.json().catch(() => ({}));

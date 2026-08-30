@@ -681,9 +681,22 @@ async function handleBuyOffer(request, env, ctx, corsHeaders, ip) {
     });
   }
 
+  // Optional — a buyer who found the exact 1/1 (or any specific mint) on
+  // Magic Eden can paste that item's link on the client, which resolves it
+  // client-side via the generic proxy below and passes the cover along so
+  // other visitors can visually confirm the item before reaching out.
+  // Never re-verified server-side (matches offerTitle/offerImage on trade
+  // posts, which are equally unverified free-form fields) — this is
+  // discovery only, nothing here depends on it being accurate.
+  const wantMintRaw = String(payload?.wantMint || "").trim();
   const offer = {
     buyerWallet,
     wantText,
+    wantMint: SOL_ADDRESS_RE.test(wantMintRaw) ? wantMintRaw : "",
+    wantTitle: tradePostField(payload?.wantTitle, 200),
+    wantRarity: tradePostField(payload?.wantRarity, 40),
+    wantCollectionName: tradePostField(payload?.wantCollectionName, 200),
+    wantImage: tradePostField(payload?.wantImage, 2000),
     offerSol,
     contactInfo: tradePostField(payload?.contactInfo, 100).trim(),
     postedAt: Date.now(),

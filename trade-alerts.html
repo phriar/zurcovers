@@ -115,6 +115,10 @@
     background:rgba(0,0,0,0.2); border:1px solid rgba(232,178,77,0.25);
   }
   .offer-row.is-new{ border-color:rgba(45,230,208,0.5); background:rgba(45,230,208,0.06); }
+  .offer-cover{
+    width:48px; aspect-ratio:2/3; object-fit:cover; border-radius:2px;
+    box-shadow:0 3px 8px rgba(0,0,0,0.4); flex-shrink:0; background:rgba(255,255,255,0.05);
+  }
   .offer-amount{ font-family:'Bangers',cursive; font-size:1.2rem; color:var(--gold); white-space:nowrap; text-align:center; min-width:80px; }
   .offer-amount span{ display:block; font-family:inherit; font-size:.6rem; letter-spacing:.1em; color:rgba(243,239,230,0.5); text-transform:uppercase; font-family:'DM Mono',monospace; }
   .offer-info{ flex:1; min-width:0; }
@@ -247,16 +251,21 @@ const offerListEl = document.getElementById('offer-list');
 const OFFER_LAST_SEEN_KEY = 'zc_buy_offer_alerts_last_seen';
 
 function offerRowHtml(o, isNew){
+  const meLink = o.wantMint ? `<a class="post-open-cover" href="${esc('https://magiceden.io/item-details/' + o.wantMint)}" target="_blank" rel="noopener">View on ME &#8599;</a>` : '';
   return `
     <div class="offer-row${isNew ? ' is-new' : ''}">
       ${isNew ? '<div class="new-badge">NEW</div>' : ''}
+      ${o.wantImage ? `<img class="offer-cover" src="${esc(o.wantImage)}" loading="lazy" onerror="this.style.opacity=0.2">` : ''}
       <div class="offer-amount">${esc(o.offerSol)}<span>SOL</span></div>
       <div class="offer-info">
         <div class="offer-want">Wants: ${esc(o.wantText)}</div>
+        ${o.wantTitle ? `<div class="post-collection">${esc(o.wantTitle)}${o.wantCollectionName ? ' — ' + esc(o.wantCollectionName) : ''}</div>` : ''}
+        ${o.wantRarity ? `<div class="comic-rarity">${esc(o.wantRarity)}</div>` : ''}
         ${o.contactInfo ? `<div class="offer-contact">&#9993; ${esc(o.contactInfo)}</div>` : ''}
         <div class="offer-meta-row">
           <span class="post-poster" data-copy="${esc(o.buyerWallet)}" role="button" tabindex="0" title="Click to copy full address">&#9678; ${esc(shortAddr(o.buyerWallet))}</span>
           <span class="post-age">${esc(timeAgo(o.postedAt))}</span>
+          ${meLink}
         </div>
       </div>
     </div>
