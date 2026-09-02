@@ -65,6 +65,8 @@
     font-size:1.05rem; line-height:1.6; color:rgba(243,239,230,0.94);
   }
   .mental-model b{ color:var(--gold); font-weight:500; font-style:normal; }
+  .mental-model a{ text-decoration:none; }
+  .mental-model a:hover b{ text-decoration:underline; }
 
   .entry-panel{
     display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:center;
@@ -175,7 +177,7 @@
   <div class="wordmark">zurcovers</div>
   <h1>Your <span>Long Box</span>,<br>pulled from chain.</h1>
   <p class="tagline">Paste a public Solana wallet address and step into your Long Box — every DC digital comic cover it holds, arranged like a shelf in a comic shop, with rarity and the current Magic Eden floor on the tag. No wallet connection, no signature, no transaction. Read-only, always.</p>
-  <p class="mental-model"><b>ZurVault</b> helps you find the books. <b>ZurCovers</b> lets you enjoy the collection.</p>
+  <p class="mental-model"><a href="https://zurvault.com" target="_blank" rel="noopener"><b>ZurVault</b></a> helps you find the books. <b>ZurCovers</b> lets you enjoy the collection.</p>
 
   <div class="entry-panel">
     <input type="text" id="wallet-input" placeholder="paste a public wallet address" autocapitalize="off" autocorrect="off" spellcheck="false">
@@ -193,6 +195,10 @@
       <a class="page-card no-wallet" href="trade-board.html">
         <div class="page-name">Trade Board &#8599;</div>
         <div class="page-desc">Browse spare comics other collectors are open to trading. Just looking? No wallet address required.</div>
+      </a>
+      <a class="page-card no-wallet" href="https://zurvault.com" target="_blank" rel="noopener">
+        <div class="page-name">ZurVault &#8599;</div>
+        <div class="page-desc">Looking to buy? Search and compare prices across every DC digital comic listing on ZurVault.</div>
       </a>
     </div>
   </div>
