@@ -642,13 +642,24 @@ function cleanTitle(name){
 // second copy of a comic you already hold should bump that card back
 // toward the top of "Recently Added", not get lost behind whichever
 // mint happened to be seen first while grouping.
+//
+// Split on rarity as well as title (not title alone, the earlier
+// approach) — a title's own rarity variants (Common/Rare/Legendary
+// printings of the same issue) share a cleaned title, and grouping by
+// title alone silently collapsed them into one card showing only
+// whichever rarity happened to be seen first, with the others just
+// folded into its ×N count. This is the Grid's whole reason for
+// existing over the Long Box's per-collection shelf — "every single
+// cover and its rarity" — so it shouldn't itself hide distinct covers.
 function groupByName(items){
   const byName = new Map();
   for(const item of items){
     const packFlag = isPackItem(item);
-    // Same base title as an opened copy of this issue would clean down
-    // to — the pack suffix keeps the two from collapsing into one group.
-    const k = (cleanTitle(item.name) || item.mint) + (packFlag ? ' — unopened pack' : '');
+    const rarity = normalizeRarity(item.attributes);
+    // Same base title (and rarity) as an opened copy of this issue would
+    // clean down to — the pack suffix keeps an unopened pack from
+    // collapsing into the same group as an opened copy of that issue.
+    const k = (cleanTitle(item.name) || item.mint) + '::' + (rarity || '') + (packFlag ? ' — unopened pack' : '');
     if(!byName.has(k)) byName.set(k, { representative: item, count: 0, acquiredAt: undefined, isPack: packFlag });
     const entry = byName.get(k);
     entry.count++;
