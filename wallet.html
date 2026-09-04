@@ -229,6 +229,15 @@
 <body>
 <div id="grain"></div>
 <script>
+// Caches cover images (see sw.js) so a wallet you've already opened here —
+// or on the Long Box/Collections/Slideshow, same cache — loads its covers
+// instantly on a repeat visit instead of re-fetching every one from
+// Arweave/IPFS.
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').catch(function(){});
+}
+</script>
+<script>
 // Lightweight, anonymous page-view tracking — see zurcovers-proxy-worker.js's
 // /v2/page-view and metrics.html. visitorId is a random id cached in
 // localStorage purely so metrics.html can show a rough unique-visitor
@@ -286,6 +295,7 @@
     <span class="control-label">Sort</span>
     <button class="pill active" id="sort-default" disabled title="Ranked by Magic Eden purchase date where known. Items with no purchase on record (airdrops, migrations, or buys older than the recent-activity window checked) sort last.">Recently Added</button>
     <button class="pill" id="sort-price" disabled>Highest Value First</button>
+    <button class="pill" id="sort-covers" disabled title="Ranked by how many distinct covers/rarities you hold — a collection (or rarity tier, in Rarity grouping) with 12 different covers outranks one where you hold 3, regardless of copy count.">Most Covers First</button>
   </div>
 </div>
 
@@ -345,13 +355,14 @@ const groupCollectionBtn = document.getElementById('group-collection');
 const groupRarityBtn = document.getElementById('group-rarity');
 const sortDefaultBtn = document.getElementById('sort-default');
 const sortPriceBtn = document.getElementById('sort-price');
+const sortCoversBtn = document.getElementById('sort-covers');
 
 // allGroups/flatCards live across the load + control-toggle lifecycle of
 // one wallet, rebuilt fresh at the top of every loadWallet() call.
 let allGroups = {};
 let flatCards = [];
 let groupMode = 'collection'; // 'collection' | 'rarity'
-let sortMode = 'default';     // 'default' | 'price-desc'
+let sortMode = 'default';     // 'default' | 'price-desc' | 'covers-desc'
 let searchQuery = '';
 let packsOnlyFilter = false;
 let purchaseTimes = new Map(); // mint -> blockTime of most recent Magic Eden buy by this wallet
@@ -540,7 +551,7 @@ async function loadWallet(address){
   // every collection — running that concurrently with this loop would
   // roughly double the simultaneous Magic Eden request rate.
   controlsRowEl.style.display = 'flex';
-  [groupCollectionBtn, sortDefaultBtn, sortPriceBtn].forEach(b => b.disabled = false);
+  [groupCollectionBtn, sortDefaultBtn, sortPriceBtn, sortCoversBtn].forEach(b => b.disabled = false);
 
   // Reverted to collection floor only (no eager rarity-floor fetch) —
   // that added a second Magic Eden call per collection (slower, and
@@ -884,6 +895,17 @@ function renderAll(){
     // ranking with a placeholder value.
     const sectionTotal = (s) => s.cards.reduce((sum, c) => sum + (c._price.value ?? 0) * c.count, 0);
     sectionList.sort((a, b) => sectionTotal(b) - sectionTotal(a));
+  } else if(sortMode === 'covers-desc'){
+    // Ranks sections by how many DISTINCT covers/rarities you hold there
+    // (cards.length — one card per title+rarity pair, see groupByName)
+    // rather than total copies owned, so a collection where you hold 12
+    // different comics outranks one where you hold 30 copies of the same
+    // single comic. Needs no async data, unlike price-desc — available
+    // the moment flatCards is built.
+    for(const s of sectionList){
+      s.cards.sort((a, b) => (b.acquiredAt ?? -Infinity) - (a.acquiredAt ?? -Infinity));
+    }
+    sectionList.sort((a, b) => b.cards.length - a.cards.length);
   } else {
     // Default mode: genuinely "recently added" now, using each card's
     // most recent Magic Eden purchase timestamp (see purchaseTimes/
@@ -938,6 +960,7 @@ function setGroupButtons(){
 function setSortButtons(){
   sortDefaultBtn.classList.toggle('active', sortMode === 'default');
   sortPriceBtn.classList.toggle('active', sortMode === 'price-desc');
+  sortCoversBtn.classList.toggle('active', sortMode === 'covers-desc');
 }
 
 // Rarity floors are now fetched eagerly for every collection during the
@@ -950,7 +973,7 @@ function setSortButtons(){
 async function ensureRarityFloorsLoaded(){
   const keys = Object.keys(allGroups).filter(k => allGroups[k].rarityFloors === undefined);
   if(keys.length === 0) return;
-  [groupCollectionBtn, groupRarityBtn, sortDefaultBtn, sortPriceBtn].forEach(b => b.disabled = true);
+  [groupCollectionBtn, groupRarityBtn, sortDefaultBtn, sortPriceBtn, sortCoversBtn].forEach(b => b.disabled = true);
   let done = 0;
   for(const key of keys){
     const g = allGroups[key];
@@ -960,7 +983,7 @@ async function ensureRarityFloorsLoaded(){
     await sleep(LOOKUP_PACE_MS);
   }
   setStatus('Done.');
-  [groupCollectionBtn, groupRarityBtn, sortDefaultBtn, sortPriceBtn].forEach(b => b.disabled = false);
+  [groupCollectionBtn, groupRarityBtn, sortDefaultBtn, sortPriceBtn, sortCoversBtn].forEach(b => b.disabled = false);
 }
 
 groupCollectionBtn.addEventListener('click', () => {
@@ -984,6 +1007,11 @@ sortPriceBtn.addEventListener('click', async () => {
   setSortButtons();
   if(groupMode === 'rarity') await ensureRarityFloorsLoaded();
   renderAll();
+});
+sortCoversBtn.addEventListener('click', () => {
+  sortMode = 'covers-desc';
+  setSortButtons();
+  renderAll(); // needs no extra data — section sizes come straight off flatCards, already in hand
 });
 
 // Search works immediately, even while floor prices are still loading —

@@ -549,6 +549,14 @@
 <body>
 <div id="grain"></div>
 <script>
+// Caches cover images (see sw.js) so a wallet you've already opened here —
+// or on Grid/Collections/Slideshow, same cache — loads its covers instantly
+// on a repeat visit instead of re-fetching every one from Arweave/IPFS.
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').catch(function(){});
+}
+</script>
+<script>
 // Lightweight, anonymous page-view tracking — see zurcovers-proxy-worker.js's
 // /v2/page-view and metrics.html. visitorId is a random id cached in
 // localStorage purely so metrics.html can show a rough unique-visitor

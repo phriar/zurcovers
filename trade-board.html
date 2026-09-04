@@ -185,6 +185,13 @@
 <body>
 <div id="grain"></div>
 <script>
+// Caches cover images (see sw.js) so a cover already seen on another
+// zurcovers page loads instantly here too.
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').catch(function(){});
+}
+</script>
+<script>
 // Same anonymous, non-identifying page-view beacon every other page fires
 // — see zurcovers-proxy-worker.js's /v2/page-view and metrics.html.
 (function(){
