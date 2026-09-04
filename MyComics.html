@@ -114,6 +114,7 @@
   .comic-rarity.rarity-rare       { color:var(--cyan); border-color:rgba(45,230,208,0.4); }
   .comic-rarity.rarity-epic       { color:#c79bff; border-color:rgba(199,155,255,0.5); }
   .comic-rarity.rarity-legendary  { color:var(--gold); border-color:rgba(232,178,77,0.5); }
+  .comic-rarity.rarity-pack       { color:#fb923c; border-color:rgba(251,146,60,0.5); background:rgba(251,146,60,0.1); }
 
   /* Collection panel — opened when a shelf card is tapped, showing every
      comic (and rarity variant) owned inside that one collection, plus
@@ -358,6 +359,11 @@
   .pill:hover:not(:disabled){ color:rgba(243,239,230,0.95); border-color:rgba(232,178,77,0.4); }
   .pill.active{ color:#fff; background:var(--tag-red); border-color:transparent; }
   .pill:disabled{ opacity:0.35; cursor:default; }
+  /* Packs filter is a toggle, not a member of the mutually-exclusive sort
+     group above — orange (matching wallet.html's pack badge) rather than
+     the sort group's red, so it visually reads as "narrowing" rather than
+     "reordering." */
+  .pill.pill-packs.active{ color:#1a1006; background:#fb923c; border-color:transparent; }
   /* Collection search — a single native input+datalist combo rather than
      separate free-text and dropdown controls, since a datalist already
      gives both: type to filter, or click the field to see every
@@ -601,6 +607,7 @@
   <button class="pill active" id="sort-default" disabled>Recently Added</button>
   <button class="pill" id="sort-price" disabled>Highest Floor First</button>
   <button class="pill" id="sort-complete" disabled>Complete Sets First</button>
+  <button class="pill pill-packs" id="filter-packs" style="display:none">&#128230; Unopened Packs</button>
   <div class="search-group">
     <span class="control-label">Find</span>
     <input type="text" class="search-input" id="collection-search" list="collection-list" placeholder="Superman, Batman…" autocomplete="off">
@@ -760,6 +767,7 @@ const controlsRowEl = document.getElementById('controls-row');
 const sortDefaultBtn = document.getElementById('sort-default');
 const sortPriceBtn = document.getElementById('sort-price');
 const sortCompleteBtn = document.getElementById('sort-complete');
+const filterPacksBtn = document.getElementById('filter-packs');
 const searchInputEl = document.getElementById('collection-search');
 const collectionListEl = document.getElementById('collection-list');
 const noResultsEl = document.getElementById('no-results');
@@ -807,6 +815,17 @@ const flexCardHintEl = document.getElementById('flex-card-hint');
 let allGroups = {};
 let sortMode = 'default'; // 'default' | 'price-desc'
 let searchQuery = ''; // lowercased, matched as a substring of the collection name
+let packsOnlyFilter = false;
+
+// Migrated-over unopened packs (same attribute wallet.html's Grid view
+// already checks: "Item Type" = "Pack") are their own distinct thing from a
+// *collection* whose display name happens to contain the word "pack" — the
+// Find search box matches on collection name, so typing "pack" into it
+// produces false positives for e.g. a "Booster Pack" -named collection with
+// no actual unopened-pack items inside. This checks the real trait instead.
+function isPackItem(item){
+  return (item.attributes || []).some(a => /^item type$/i.test(a?.trait_type || '') && /^pack$/i.test(String(a?.value || '').trim()));
+}
 let openModalKey = null; // guards a slow rarity-floors fetch from clobbering a modal the visitor has since closed/reopened on a different collection
 
 const RARITY_ALIASES = { common:'common', core:'common', base:'common', standard:'common', uncommon:'uncommon', rare:'rare', epic:'epic', legendary:'legendary' };
@@ -966,6 +985,9 @@ async function loadWallet(address){
   sortDefaultBtn.classList.add('active');
   sortPriceBtn.classList.remove('active');
   sortCompleteBtn.classList.remove('active');
+  packsOnlyFilter = false;
+  filterPacksBtn.classList.remove('active');
+  filterPacksBtn.style.display = 'none';
   searchQuery = '';
   searchInputEl.value = '';
   noResultsEl.style.display = 'none';
@@ -1073,6 +1095,7 @@ async function loadWallet(address){
   updatePortfolioValue();
   updateSparesAvailability(); // spares need no async data at all — title/rarity come straight off the raw assets, so this can appear immediately rather than waiting on the eager floor/rarity loop below
   updateListingsAvailability(); // same reasoning — listing status/price came back with the initial load, nothing async left to wait on
+  updatePacksAvailability(); // same reasoning — the pack trait is on the raw asset already
   // Sort unlocks immediately rather than waiting for the whole eager loop
   // below to finish — with a wallet spanning many collections, that wait
   // can run into a minute or more. "Highest Floor First" works correctly
@@ -1395,12 +1418,12 @@ function sortedKeys(){
   return keys; // 'default' — whatever order collections first appeared in the wallet fetch
 }
 
-// Applied after sortedKeys() rather than folded into it — search narrows
-// *which* collections show, sort decides their order, and keeping them
-// separate means typing into the search box never disturbs whichever sort
-// is currently active (or vice versa).
+// Applied after sortedKeys() rather than folded into it — search/packs
+// narrow *which* collections show, sort decides their order, and keeping
+// them separate means neither disturbs the other.
 function filteredKeys(){
-  const keys = sortedKeys();
+  let keys = sortedKeys();
+  if(packsOnlyFilter) keys = keys.filter(key => allGroups[key].items.some(isPackItem));
   if(!searchQuery) return keys;
   return keys.filter(key => (allGroups[key].name || '').toLowerCase().includes(searchQuery));
 }
@@ -1409,12 +1432,19 @@ function render(){
   const keys = filteredKeys();
   shelfEl.innerHTML = keys.map(collectionCardHtml).join('');
   const totalCount = Object.keys(allGroups).length;
-  if(searchQuery && keys.length === 0 && totalCount > 0){
-    noResultsEl.textContent = `No collections match "${searchInputEl.value.trim()}".`;
+  if(keys.length === 0 && totalCount > 0 && (searchQuery || packsOnlyFilter)){
+    noResultsEl.textContent = searchQuery
+      ? `No collections match "${searchInputEl.value.trim()}".`
+      : 'No unopened packs in this wallet.';
     noResultsEl.style.display = 'block';
   } else {
     noResultsEl.style.display = 'none';
   }
+}
+
+function updatePacksAvailability(){
+  const hasPacks = Object.values(allGroups).some(g => g.items.some(isPackItem));
+  filterPacksBtn.style.display = hasPacks ? 'inline-block' : 'none';
 }
 
 // Patches just the price-tag text/class on this card — no innerHTML
@@ -1625,13 +1655,16 @@ function collectionModalTileHtml({ title, rarity, items }){
   // exact print, not just that the collection has something for sale.
   const listedItems = items.filter(i => i.isListed);
   const listedPrices = listedItems.map(i => i.listPrice).filter(p => typeof p === 'number');
+  const isPack = items.some(isPackItem);
   return `
     <div class="copy-card" data-tile-mint="${esc(rep.mint)}">
       <a href="${esc(pdpUrl)}" target="_blank" rel="noopener">
         ${candidates[0] ? `<img src="${esc(candidates[0])}" loading="lazy" data-tried-idx="0" data-candidates="${esc(JSON.stringify(candidates))}" onerror="handleTileImgError(this)">` : `<div class="no-preview">No preview</div>`}
       </a>
       <div class="copy-title">${esc(title)}${items.length > 1 ? ` &times;${items.length}` : ''}</div>
-      ${rarity ? `<div class="comic-rarity rarity-${rarity.toLowerCase()}">${esc(rarity)}</div>` : ''}
+      ${isPack
+        ? `<div class="comic-rarity rarity-pack">&#128230; Unopened Pack</div>`
+        : (rarity ? `<div class="comic-rarity rarity-${rarity.toLowerCase()}">${esc(rarity)}</div>` : '')}
       ${listedItems.length > 0 ? `<div class="copy-listed-tag">Listed${listedPrices.length ? ` &middot; ${Math.min(...listedPrices).toFixed(3)} SOL` : ''}</div>` : ''}
       <a class="copy-me-tag" href="${esc(pdpUrl)}" target="_blank" rel="noopener">Magic Eden &#8599;</a>
       <span data-candy-slot>${rep.candyUrl ? `<a class="copy-candy-link" href="${esc(rep.candyUrl)}" target="_blank" rel="noopener">Read on Candy &#8599;</a>` : ''}</span>
@@ -2825,6 +2858,11 @@ sortCompleteBtn.addEventListener('click', () => {
 });
 searchInputEl.addEventListener('input', () => {
   searchQuery = searchInputEl.value.trim().toLowerCase();
+  render();
+});
+filterPacksBtn.addEventListener('click', () => {
+  packsOnlyFilter = !packsOnlyFilter;
+  filterPacksBtn.classList.toggle('active', packsOnlyFilter);
   render();
 });
 
