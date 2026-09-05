@@ -730,16 +730,28 @@ async function handleBuyOffers(env, corsHeaders) {
 const SAFE_KEY_RE = /^[a-zA-Z0-9_-]{1,128}$/;
 
 // Pages through every asset Helius has indexed under this on-chain
-// collection grouping and collects the distinct Rarity trait values found
-// — see the comment above COLLECTION_RARITY_CACHE_TTL_SECONDS for why
-// this replaced a Magic-Eden-listings-based approach. Returns raw trait
-// values (e.g. "RARE", "CORE") rather than normalized labels — the
-// frontend already owns that normalization (normalizeRarity/
-// RARITY_ALIASES) and this keeps that logic in one place rather than
-// duplicating it server-side where it could drift out of sync.
+// collection grouping and collects the distinct Rarity trait values found,
+// plus a live count per value and overall — see the comment above
+// COLLECTION_RARITY_CACHE_TTL_SECONDS for why this replaced a
+// Magic-Eden-listings-based approach. Returns raw trait values (e.g.
+// "RARE", "CORE") rather than normalized labels — the frontend already
+// owns that normalization (normalizeRarity/RARITY_ALIASES) and this keeps
+// that logic in one place rather than duplicating it server-side where it
+// could drift out of sync.
+//
+// Counts explicitly skip burnt assets (item.burnt === true) so totalSupply
+// reflects what actually exists on-chain RIGHT NOW, not what was ever
+// minted. This matters specifically because Candy Digital burns unsold
+// copies after a drop closes — the "(123/456)" edition size baked into an
+// NFT's own name at mint time is the ORIGINAL planned print run, which can
+// overstate real current supply once burns are accounted for. This is
+// ground truth for "how many exist today," independent of both Magic
+// Eden's listings (see above) and whatever a name's baked-in total claims.
 async function fetchCollectionRarities(collectionKey, env) {
   const rpcUrl = `${HELIUS_ORIGIN}?api-key=${env.HELIUS_API_KEY}`;
   const rarities = new Set();
+  const counts = new Map();
+  let totalSupply = 0;
   for (let page = 1; page <= COLLECTION_ASSET_MAX_PAGES; page++) {
     const res = await fetch(rpcUrl, {
       method: "POST",
@@ -756,13 +768,19 @@ async function fetchCollectionRarities(collectionKey, env) {
     if (json.error) throw new Error(json.error.message || "Helius error");
     const items = (json.result && json.result.items) || [];
     for (const item of items) {
+      if (item.burnt) continue; // gone on-chain — not part of current supply
+      totalSupply++;
       const attrs = (item.content && item.content.metadata && item.content.metadata.attributes) || [];
       const rarityAttr = attrs.find((a) => /^rarity$/i.test(a?.trait_type || ""));
-      if (rarityAttr && rarityAttr.value) rarities.add(String(rarityAttr.value).trim());
+      const value = rarityAttr && rarityAttr.value ? String(rarityAttr.value).trim() : null;
+      if (value) {
+        rarities.add(value);
+        counts.set(value, (counts.get(value) || 0) + 1);
+      }
     }
     if (items.length < 1000) break;
   }
-  return [...rarities];
+  return { rarities: [...rarities], counts: Object.fromEntries(counts), totalSupply };
 }
 
 async function handleCollectionRarities(collectionKey, env, corsHeaders, ip) {
@@ -773,7 +791,12 @@ async function handleCollectionRarities(collectionKey, env, corsHeaders, ip) {
     });
   }
 
-  const cacheKey = `collectionrarities:${collectionKey}`;
+  // Cache key versioned (v2) because the cached JSON's shape changed —
+  // counts/totalSupply added 2026-09 — and existing 30-day-TTL entries
+  // under the old key only carry `rarities`. Bumping the key forces a
+  // fresh Helius walk instead of serving old-shape responses (missing
+  // fields) for up to a month.
+  const cacheKey = `collectionrarities2:${collectionKey}`;
   const cached = await env.ZURCOVERS_CACHE.get(cacheKey);
   if (cached) {
     return new Response(cached, {
@@ -793,8 +816,8 @@ async function handleCollectionRarities(collectionKey, env, corsHeaders, ip) {
   }
 
   try {
-    const rarities = await fetchCollectionRarities(collectionKey, env);
-    const body = JSON.stringify({ rarities });
+    const { rarities, counts, totalSupply } = await fetchCollectionRarities(collectionKey, env);
+    const body = JSON.stringify({ rarities, counts, totalSupply });
     await env.ZURCOVERS_CACHE.put(cacheKey, body, { expirationTtl: COLLECTION_RARITY_CACHE_TTL_SECONDS });
     return new Response(body, {
       status: 200,

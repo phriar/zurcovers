@@ -967,14 +967,24 @@ async function fetchFloorPrice(symbol){
 // as "this collection has no rarity tiers."
 async function fetchCollectionRarities(collectionKey){
   const { ok, data, cacheHit } = await fetchCached(`${ME_BASE}/onchain-collections/${collectionKey}/rarities`);
-  if(!ok) return { value: null, cacheHit };
+  if(!ok) return { value: null, counts: null, totalSupply: null, cacheHit };
   const raw = Array.isArray(data?.rarities) ? data.rarities : [];
   const normalized = new Set();
   for(const r of raw){
     const label = normalizeRarityValue(r);
     if(label) normalized.add(label);
   }
-  return { value: normalized, cacheHit };
+  // Per-tier live counts (burn-aware — see the Worker's own comment on
+  // fetchCollectionRarities), keyed through the same normalization as the
+  // rarity set above so a raw "CORE"/"COMMON" split collapses into one
+  // Common total rather than two separate buckets.
+  const counts = new Map();
+  for(const [rawKey, n] of Object.entries(data?.counts || {})){
+    const label = normalizeRarityValue(rawKey);
+    if(label && typeof n === 'number') counts.set(label, (counts.get(label) || 0) + n);
+  }
+  const totalSupply = typeof data?.totalSupply === 'number' ? data.totalSupply : null;
+  return { value: normalized, counts, totalSupply, cacheHit };
 }
 
 async function loadWallet(address){
@@ -1190,7 +1200,11 @@ async function loadWallet(address){
     // pass or the Almost There list.
     if(allGroups[key].knownRarities === undefined && distinctOwnedRarityCount(allGroups[key].items) > 1){
       const rarityResult = await fetchCollectionRarities(key);
-      if(rarityResult.value !== null) allGroups[key].knownRarities = rarityResult.value;
+      if(rarityResult.value !== null){
+        allGroups[key].knownRarities = rarityResult.value;
+        allGroups[key].rarityCounts = rarityResult.counts;
+        allGroups[key].totalSupply = rarityResult.totalSupply;
+      }
       if(!rarityResult.cacheHit) liveCall = true;
     }
 
@@ -1813,9 +1827,11 @@ const queueCandyLookup = makeQueue();
 async function ensureKnownRarities(key){
   const g = allGroups[key];
   if(!g || g.knownRarities !== undefined) return;
-  const { value } = await queueRarityCheck(() => fetchCollectionRarities(key));
+  const { value, counts, totalSupply } = await queueRarityCheck(() => fetchCollectionRarities(key));
   if(value !== null){
     g.knownRarities = value;
+    g.rarityCounts = counts;
+    g.totalSupply = totalSupply;
     g.rarityFetchFailed = false;
     updateFlexCardAvailability(); // this on-demand check (the eager loop skips 1-tier collections) may have just completed a set the loop never would have found
   } else {
@@ -1955,14 +1971,16 @@ function bestItemForRarityTier(items, rarity){
 // One row per rarity tier that actually exists in this set (g.knownRarities
 // — same ground-truth on-chain source computeMissingRarities uses), each
 // with its representative item, how many copies of that tier are owned,
-// and that item's real serial if it has one.
+// that item's real serial if it has one, and that tier's real current
+// supply (g.rarityCounts, from the same Helius walk — burn-aware, unlike
+// the serial's own baked-in total).
 function computeSetTiers(key){
   const g = allGroups[key];
   if(!g || !g.knownRarities) return [];
   return RARITY_ORDER.filter(r => g.knownRarities.has(r)).map(r => {
     const item = bestItemForRarityTier(g.items, r);
     const count = g.items.filter(i => normalizeRarity(i.attributes) === r).length;
-    return { rarity:r, count, item, serial: item ? extractSerial(item.name) : null };
+    return { rarity:r, count, item, serial: item ? extractSerial(item.name) : null, currentSupply: g.rarityCounts?.get(r) ?? null };
   });
 }
 
@@ -2580,12 +2598,19 @@ function drawRarityRow(ctx, tiles, x, y, w, h){
     const rLabel = t.rarity.toUpperCase() + (t.count > 1 ? ` ×${t.count}` : '');
     ctx.fillText(rLabel, cx, y + coverH + 20);
 
-    // Caption line 2: mint number — straight from the wallet's own item
-    // name, never fabricated, omitted if unparseable — and this tier's
-    // floor, the lowest active listing fetchRarityFloors found for it
-    // (may read "no listings" for a scarce tier nobody's currently selling).
+    // Caption line 2: mint number — the numerator is straight from the
+    // wallet's own item name, never fabricated, omitted if unparseable.
+    // The denominator prefers this tier's real CURRENT supply
+    // (t.currentSupply, from Helius, burn-aware) over the serial's own
+    // baked-in total — that baked-in number is the original planned print
+    // run size, which Candy Digital's post-drop burns of unsold copies can
+    // overstate versus what actually exists today. Falls back to the
+    // baked-in total only if the live count hasn't resolved. Also this
+    // tier's floor, the lowest active listing fetchRarityFloors found for
+    // it (may read "no listings" for a scarce tier nobody's currently
+    // selling).
     const parts = [];
-    if(t.serial) parts.push(`#${t.serial.num}/${t.serial.total}`);
+    if(t.serial) parts.push(`#${t.serial.num}/${t.currentSupply ?? t.serial.total}`);
     parts.push(typeof t.floor === 'number' ? `${t.floor.toFixed(3)} SOL` : 'no listings');
     ctx.fillStyle = 'rgba(243,239,230,0.8)';
     ctx.font = '12px "DM Mono", monospace';
