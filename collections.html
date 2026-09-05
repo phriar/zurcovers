@@ -185,6 +185,8 @@
   .rarity-price.unavailable{ color:rgba(243,239,230,0.88); }
   .rarity-link{ font-family:'DM Mono',monospace; font-size:.88rem; letter-spacing:.05em; text-transform:uppercase; color:rgba(45,230,208,0.7); text-decoration:none; margin-left:auto; }
   .rarity-link:hover{ color:var(--cyan); }
+  .rarity-link.os-link{ margin-left:0; color:rgba(126,158,255,0.75); }
+  .rarity-link.os-link:hover{ color:#7e9eff; }
 
   .empty{ position:relative; z-index:1; padding:60px 32px; text-align:center; color:rgba(243,239,230,0.87); font-family:'Cormorant Garamond',serif; font-size:1.2rem; font-weight:300; line-height:1.6; }
 
@@ -788,6 +790,7 @@ function renderComicsList(key, symbol){
           : `<span class="rarity-price unavailable">no active ${esc(rarity)} listings</span>`;
       }
       const pdpUrl = `https://magiceden.io/item-details/${info.mint}`;
+      const osUrl = `https://opensea.io/item/solana/${info.mint}`;
       const badgeClass = isPack ? 'pack-badge' : rarityClass(rarity);
       const badgeLabel = isPack ? '&#128230; Unopened Pack' : (rarity ? esc(rarity) : 'No rarity data');
       return `
@@ -796,6 +799,7 @@ function renderComicsList(key, symbol){
           <span class="rarity-owned">you own &times;${info.count}</span>
           ${priceHtml}
           <a class="rarity-link" href="${esc(pdpUrl)}" target="_blank" rel="noopener">Magic Eden &#8599;</a>
+          <a class="rarity-link os-link" href="${esc(osUrl)}" target="_blank" rel="noopener">OpenSea &#8599;</a>
         </div>
       `;
     }).join('');

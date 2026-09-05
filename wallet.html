@@ -206,8 +206,20 @@
   .card .price.unavailable{ color:rgba(243,239,230,0.88); }
   .card .floor-label{ font-family:'DM Mono',monospace; font-size:.85rem; letter-spacing:.1em; text-transform:uppercase; color:rgba(243,239,230,0.88); margin-top:2px; }
   /* Same visual cue as ZurVault's listing/sales cards — a visitor should
-     never be surprised that clicking a card leaves this site. */
-  .card .me-tag{ font-family:'DM Mono',monospace; font-size:.88rem; letter-spacing:.05em; text-transform:uppercase; color:rgba(45,230,208,0.7); margin-top:4px; }
+     never be surprised that clicking a card leaves this site. Card body is
+     its own inner link (not the whole .card) so a second, separate
+     OpenSea link can sit alongside it without nesting an <a> inside an
+     <a> — invalid HTML that browsers silently mangle. */
+  .card-open{ display:flex; flex-direction:column; text-decoration:none; color:inherit; }
+  .card-links{ display:flex; gap:14px; padding:0 14px 14px; }
+  .card .me-tag, .card .os-tag{
+    font-family:'DM Mono',monospace; font-size:.88rem; letter-spacing:.05em; text-transform:uppercase;
+    text-decoration:none; margin-top:4px;
+  }
+  .card .me-tag{ color:rgba(45,230,208,0.7); }
+  .card .me-tag:hover{ color:var(--cyan, #2de6d0); }
+  .card .os-tag{ color:rgba(126,158,255,0.75); }
+  .card .os-tag:hover{ color:#7e9eff; }
 
   .empty{ grid-column:1/-1; position:relative; z-index:1; padding:60px 32px; text-align:center; color:rgba(243,239,230,0.87); font-family:'Cormorant Garamond',serif; font-size:1.2rem; font-weight:300; line-height:1.6; }
 
@@ -930,23 +942,29 @@ function renderAll(){
     html += `<div class="section-header">${esc(s.label)}</div>`;
     for(const c of s.cards){
       const pdpUrl = `https://magiceden.io/item-details/${c.mint}`;
+      const osUrl = `https://opensea.io/item/solana/${c.mint}`;
       html += `
-        <a class="card" href="${esc(pdpUrl)}" target="_blank" rel="noopener" data-group="${esc(c.key)}">
-          <div class="img-wrap">
-            ${c.image ? `<img src="${esc(c.image)}" loading="lazy" onerror="this.style.opacity=0.2">` : `<div class="no-preview">No preview available</div>`}
-            ${c.count > 1 ? `<div class="qty-badge">&times;${c.count}</div>` : ''}
+        <div class="card" data-group="${esc(c.key)}">
+          <a class="card-open" href="${esc(pdpUrl)}" target="_blank" rel="noopener">
+            <div class="img-wrap">
+              ${c.image ? `<img src="${esc(c.image)}" loading="lazy" onerror="this.style.opacity=0.2">` : `<div class="no-preview">No preview available</div>`}
+              ${c.count > 1 ? `<div class="qty-badge">&times;${c.count}</div>` : ''}
+            </div>
+            <div class="body">
+              <div class="sub">${esc(c.collName)}</div>
+              <div class="name">${esc(c.title)}</div>
+              ${c.isPack
+                ? `<div class="rarity-badge pack-badge">&#128230; Unopened Pack</div>`
+                : (c.rarity ? `<div class="rarity-badge ${rarityClass(c.rarity)}">${esc(c.rarity)}</div>` : '')}
+              <div class="price ${c._price.value === null ? 'unavailable' : ''}" data-price>${c._price.text}</div>
+              <div class="floor-label">${groupMode === 'rarity' && c.rarity ? 'this rarity, lowest listed' : 'collection floor'}</div>
+            </div>
+          </a>
+          <div class="card-links">
+            <a class="me-tag" href="${esc(pdpUrl)}" target="_blank" rel="noopener">View on Magic Eden &#8599;</a>
+            <a class="os-tag" href="${esc(osUrl)}" target="_blank" rel="noopener">See on OpenSea &#8599;</a>
           </div>
-          <div class="body">
-            <div class="sub">${esc(c.collName)}</div>
-            <div class="name">${esc(c.title)}</div>
-            ${c.isPack
-              ? `<div class="rarity-badge pack-badge">&#128230; Unopened Pack</div>`
-              : (c.rarity ? `<div class="rarity-badge ${rarityClass(c.rarity)}">${esc(c.rarity)}</div>` : '')}
-            <div class="price ${c._price.value === null ? 'unavailable' : ''}" data-price>${c._price.text}</div>
-            <div class="floor-label">${groupMode === 'rarity' && c.rarity ? 'this rarity, lowest listed' : 'collection floor'}</div>
-            <div class="me-tag">View on Magic Eden &#8599;</div>
-          </div>
-        </a>
+        </div>
       `;
     }
   }

@@ -178,6 +178,11 @@
     color:rgba(45,230,208,0.7); margin-top:3px; text-decoration:none;
   }
   .copy-me-tag:hover{ color:var(--cyan); }
+  .copy-os-tag{
+    display:block; font-family:'DM Mono',monospace; font-size:.85rem; letter-spacing:.05em; text-transform:uppercase;
+    color:rgba(126,158,255,0.75); margin-top:2px; text-decoration:none;
+  }
+  .copy-os-tag:hover{ color:#7e9eff; }
   .copy-candy-link{
     display:block; font-family:'DM Mono',monospace; font-size:.85rem; letter-spacing:.05em; text-transform:uppercase;
     color:var(--gold); margin-top:2px; text-decoration:none;
@@ -1672,6 +1677,7 @@ function collectionModalTileHtml({ title, rarity, items }){
   const candidates = candidateImagesFor(items);
   const rep = items.find(i => i.image) || items[0];
   const pdpUrl = `https://magiceden.io/item-details/${rep.mint}`;
+  const osUrl = `https://opensea.io/item/solana/${rep.mint}`;
   // Which specific copy in this tile (there can be more than one, the ×N
   // case) is currently listed, if any — separate from listedInfoFor's
   // collection-level rollup on the shelf card, since here it matters which
@@ -1690,6 +1696,7 @@ function collectionModalTileHtml({ title, rarity, items }){
         : (rarity ? `<div class="comic-rarity rarity-${rarity.toLowerCase()}">${esc(rarity)}</div>` : '')}
       ${listedItems.length > 0 ? `<div class="copy-listed-tag">Listed${listedPrices.length ? ` &middot; ${Math.min(...listedPrices).toFixed(3)} SOL` : ''}</div>` : ''}
       <a class="copy-me-tag" href="${esc(pdpUrl)}" target="_blank" rel="noopener">Magic Eden &#8599;</a>
+      <a class="copy-os-tag" href="${esc(osUrl)}" target="_blank" rel="noopener">OpenSea &#8599;</a>
       <span data-candy-slot>${rep.candyUrl ? `<a class="copy-candy-link" href="${esc(rep.candyUrl)}" target="_blank" rel="noopener">Read on Candy &#8599;</a>` : ''}</span>
     </div>
   `;

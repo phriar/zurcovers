@@ -386,6 +386,7 @@ document.querySelectorAll('[data-tip-copy]').forEach(function(el){
         <div class="rarity-badge" id="m-rarity" style="display:none"></div>
         <div class="mh-counter" id="m-counter"></div>
         <a class="mh-link me-link" id="m-melink" href="#" target="_blank" rel="noopener">Magic Eden &#8599;</a>
+        <a class="mh-link me-link" id="m-oslink" href="#" target="_blank" rel="noopener">OpenSea &#8599;</a>
       </div>
     </div>
     <div class="trait-strip" id="m-traits"></div>
@@ -445,6 +446,7 @@ var mFloor    = document.getElementById('m-floor');
 var mTraits   = document.getElementById('m-traits');
 var mRarity   = document.getElementById('m-rarity');
 var mMeLink   = document.getElementById('m-melink');
+var mOsLink   = document.getElementById('m-oslink');
 var mCounter  = document.getElementById('m-counter');
 var progFill  = document.getElementById('progress-fill');
 var pauseBtn  = document.getElementById('pause-btn');
@@ -840,6 +842,7 @@ function show(i) {
     return '<div class="trait"><div class="trait-type">' + esc(String(a.trait_type || '')) + '</div><div class="trait-val">' + esc(String(a.value || '—')) + '</div></div>';
   }).join('');
   mMeLink.href = 'https://magiceden.io/item-details/' + n.mint;
+  mOsLink.href = 'https://opensea.io/item/solana/' + n.mint;
   mCounter.textContent = (i + 1) + ' / ' + nfts.length;
   if (nfts[i + 1] && nfts[i + 1].image) { var pre = new Image(); pre.src = nfts[i + 1].image; }
   syncArtTopPadding(); // must run after every masthead field above is set — its rendered height is what's being measured
