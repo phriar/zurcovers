@@ -1695,8 +1695,8 @@ function collectionModalTileHtml({ title, rarity, items }){
         ? `<div class="comic-rarity rarity-pack">&#128230; Unopened Pack</div>`
         : (rarity ? `<div class="comic-rarity rarity-${rarity.toLowerCase()}">${esc(rarity)}</div>` : '')}
       ${listedItems.length > 0 ? `<div class="copy-listed-tag">Listed${listedPrices.length ? ` &middot; ${Math.min(...listedPrices).toFixed(3)} SOL` : ''}</div>` : ''}
-      <a class="copy-me-tag" href="${esc(pdpUrl)}" target="_blank" rel="noopener">Magic Eden &#8599;</a>
-      <a class="copy-os-tag" href="${esc(osUrl)}" target="_blank" rel="noopener">OpenSea &#8599;</a>
+      <a class="copy-me-tag" href="${esc(pdpUrl)}" target="_blank" rel="noopener">List on ME &#8599;</a>
+      <a class="copy-os-tag" href="${esc(osUrl)}" target="_blank" rel="noopener">List on OS &#8599;</a>
       <span data-candy-slot>${rep.candyUrl ? `<a class="copy-candy-link" href="${esc(rep.candyUrl)}" target="_blank" rel="noopener">Read on Candy &#8599;</a>` : ''}</span>
     </div>
   `;
