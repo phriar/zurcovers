@@ -27,6 +27,11 @@
  * 3. Add the HELIUS_API_KEY secret (Worker Settings → Variables → add
  *    secret, or `wrangler secret put HELIUS_API_KEY`) — required for
  *    GET /v2/wallet-assets, see below.
+ * 3b. Add an OPENSEA_API_KEY secret, same way — required for GET
+ *    /v2/opensea-wallet-listings (backs MyComics.html's "My Listings"
+ *    modal). Deliberately its own key, not shared with ZurVault's separate
+ *    OpenSea key — see that constant's comment for why. Missing this
+ *    secret degrades to "nothing listed on OpenSea" rather than an error.
  * 4. Note the URL Cloudflare gives you and point zurcovers.com's pages at
  *    it (ME_PROXY_BASE constant in each HTML file).
  *
@@ -151,6 +156,34 @@ const SOL_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/; // base58, no 0/O/I/l
 const WALLET_CACHE_TTL_SECONDS = 90; // repeat loads of the same wallet within this window skip Helius entirely
 const WALLET_RATE_LIMIT_PER_HOUR = 30; // per IP, only counted on actual Helius calls (cache hits are free)
 const WALLET_ASSET_MAX_PAGES = 10; // Helius getAssetsByOwner, 1000/page — same cap slideshow-legacy.html used
+
+// OPENSEA WALLET LISTINGS — GET /v2/opensea-wallet-listings?address={pubkey},
+// backs MyComics.html's "My Listings" modal. Magic Eden's own
+// /wallets/{address}/tokens?listStatus=listed (see the ME merge in
+// loadWallet) only ever reports what's listed on Magic Eden — a comic
+// listed on OpenSea instead was invisible to that modal entirely, even
+// though OpenSea now indexes candy.io's whole DC catalog under one
+// collection (ZurVault's separate repo/Worker confirmed this live as
+// "candy-dc"). Uses OpenSea's official per-account endpoint
+// (GET /api/v2/account/{address}/listings?chains=solana) rather than
+// crawling that whole collection's listings and cross-referencing mints —
+// ZurVault's Worker does the latter (it has no per-wallet use case, only
+// "every active listing across the whole catalog"), but a direct
+// per-wallet lookup is the right shape here, same as Magic Eden's own
+// wallet-scoped listings call just above. Own OPENSEA_API_KEY secret,
+// deliberately NOT shared with ZurVault's — same key would mean the two
+// sites compete for one shared rate-limit budget.
+//
+// Response per-listing shape (asset.identifier = mint, price.current with
+// currency/decimals/value in the smallest unit) mirrors exactly what
+// ZurVault's Worker already parses live from OpenSea's collection-listings
+// endpoint (same OpenSea V2 orders schema) — reused here rather than
+// guessed at, since OpenSea's public docs don't spell out the Solana
+// listing shape in any more detail than that.
+const OPENSEA_ORIGIN = "https://api.opensea.io";
+const OPENSEA_LISTINGS_CACHE_TTL_SECONDS = 90; // matches WALLET_CACHE_TTL_SECONDS — listing status is just as live
+const OPENSEA_RATE_LIMIT_PER_HOUR = 30; // per IP, only counted on actual OpenSea calls (cache hits are free) — mirrors WALLET_RATE_LIMIT_PER_HOUR
+const OPENSEA_LISTINGS_MAX_PAGES = 5; // safety cap on the `next`-cursor pagination — generous for one wallet's own listings
 
 // TRADE BOARD — POST /v2/trade-post (create a spare-comic trade posting),
 // GET /v2/trade-posts (list them). Discovery/matching only: no escrow, no
@@ -411,6 +444,94 @@ async function fetchWalletAssets(address, env) {
   }
   await applyCachedMetadata(assets, env);
   return assets;
+}
+
+function lamportsToSol(rawValue, decimals) {
+  const n = Number(rawValue);
+  if (!Number.isFinite(n)) return null;
+  return n / Math.pow(10, decimals ?? 9);
+}
+
+// Pages through this wallet's own active OpenSea listings via the `next`
+// cursor. Only SOL-denominated listings resolve to a price — anything
+// else comes back with priceSol: null rather than guessing a conversion,
+// same "no number beats a wrong number" principle ZurVault's Worker
+// already applies to its own OpenSea price parsing.
+async function fetchOpenSeaWalletListings(address, env) {
+  const listings = [];
+  let cursor = null;
+  for (let page = 0; page < OPENSEA_LISTINGS_MAX_PAGES; page++) {
+    const url = new URL(`${OPENSEA_ORIGIN}/api/v2/account/${address}/listings`);
+    url.searchParams.set("chains", "solana");
+    url.searchParams.set("limit", "100");
+    if (cursor) url.searchParams.set("next", cursor);
+    const res = await fetch(url, { headers: { Accept: "application/json", "x-api-key": env.OPENSEA_API_KEY } });
+    if (!res.ok) throw new Error(`OpenSea HTTP ${res.status}`);
+    const data = await res.json();
+    for (const l of Array.isArray(data?.listings) ? data.listings : []) {
+      const mint = l?.asset?.identifier;
+      if (!mint) continue;
+      const priceSol = l?.price?.current?.currency === "SOL" ? lamportsToSol(l.price.current.value, l.price.current.decimals) : null;
+      listings.push({ mint, priceSol });
+    }
+    cursor = data?.next || null;
+    if (!cursor) break;
+  }
+  return listings;
+}
+
+async function handleOpenSeaWalletListings(request, env, corsHeaders, ip) {
+  const url = new URL(request.url);
+  const address = (url.searchParams.get("address") || "").trim();
+  if (!SOL_ADDRESS_RE.test(address)) {
+    return new Response(JSON.stringify({ error: "invalid_address" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  // Missing key just means "nothing to report" rather than a hard error —
+  // MyComics.html's fetch of this endpoint is already best-effort (a bad
+  // response just means "nothing listed on OpenSea"), same as its ME
+  // listings call.
+  if (!env.OPENSEA_API_KEY) {
+    return new Response(JSON.stringify({ listings: [] }), {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const cacheKey = `openseawalletlistings:${address}`;
+  const cached = await env.ZURCOVERS_CACHE.get(cacheKey);
+  if (cached) {
+    return new Response(cached, {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json", "X-Zurcovers-Cache-Status": "HIT" },
+    });
+  }
+
+  const allowed = await checkAndBumpRateLimit(ip, env, "opensea", OPENSEA_RATE_LIMIT_PER_HOUR);
+  if (!allowed) {
+    return new Response(JSON.stringify({ error: "rate_limited", retryAfterSeconds: 3600 }), {
+      status: 429,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const listings = await fetchOpenSeaWalletListings(address, env);
+    const body = JSON.stringify({ listings });
+    await env.ZURCOVERS_CACHE.put(cacheKey, body, { expirationTtl: OPENSEA_LISTINGS_CACHE_TTL_SECONDS });
+    return new Response(body, {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json", "X-Zurcovers-Cache-Status": "MISS" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: "opensea_listings_failed", message: err.message }), {
+      status: 502,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
 }
 
 // Generic per-IP-per-hour counter, bucketed by name so different endpoints
@@ -964,6 +1085,10 @@ export default {
 
     if (url.pathname === "/v2/wallet-assets") {
       return handleWalletAssets(request, env, ctx, corsHeaders);
+    }
+
+    if (url.pathname === "/v2/opensea-wallet-listings") {
+      return handleOpenSeaWalletListings(request, env, corsHeaders, ip);
     }
 
     const collectionRaritiesMatch = url.pathname.match(/^\/v2\/onchain-collections\/([^/]+)\/rarities$/);

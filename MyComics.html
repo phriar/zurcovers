@@ -934,6 +934,33 @@ async function resolveCandyUrl(mintAddress){
   }
 }
 
+// Same /tokens/{mint} call as resolveCandyUrl above, but for the rarer
+// case (see the OpenSea merge in loadWallet) of a mint listed on OpenSea
+// that Helius's getAssetsByOwner never returned at all — needs the actual
+// name/image/attributes/collection to build a shelf card, not just the
+// externalUrl. Returns null on any failure so that item is simply skipped
+// (see the "Unknown Collection" fallback in loadWallet) rather than
+// breaking the wallet load over one bad lookup.
+async function resolveOpenSeaOnlyMetadata(mintAddress){
+  try{
+    const res = await fetch(`${ME_BASE}/tokens/${mintAddress}`);
+    if(!res.ok) return null;
+    const data = await res.json();
+    const collectionField = data?.collection;
+    const collectionName = typeof collectionField === 'string'
+      ? collectionField
+      : (collectionField?.name || data?.collectionName || null);
+    return {
+      name: data?.name || null,
+      image: data?.image || null,
+      attributes: Array.isArray(data?.attributes) ? data.attributes : [],
+      collectionName,
+    };
+  }catch(e){
+    return null;
+  }
+}
+
 // Fire-and-forget beacon behind every "See what's for sale on ZurVault" /
 // "find one on ZurVault" outbound link — see the Worker's
 // /v2/zurvault-click and metrics.html. Never awaited/blocking: these links
@@ -1019,14 +1046,20 @@ async function loadWallet(address){
 
   let json;
   let listedJson = [];
+  let osListedJson = [];
   try{
     // Fetched alongside wallet-assets rather than after it — this is Magic
     // Eden's own wallet-tokens endpoint (already reachable through the
     // Worker's generic pass-through proxy, no Worker change needed), and
-    // there's no reason to make a visitor wait through it twice.
-    const [assetsRes, listedRes] = await Promise.all([
+    // there's no reason to make a visitor wait through it twice. The
+    // OpenSea call rides along the same way, through the Worker's own
+    // /opensea-wallet-listings (see that Worker endpoint's comment) — a
+    // comic listed there instead of Magic Eden was invisible to My
+    // Listings entirely until this was added.
+    const [assetsRes, listedRes, osListedRes] = await Promise.all([
       fetch(`${ME_BASE}/wallet-assets?address=${encodeURIComponent(address)}`),
       fetch(`${ME_BASE}/wallets/${encodeURIComponent(address)}/tokens?listStatus=listed`).catch(() => null),
+      fetch(`${ME_BASE}/opensea-wallet-listings?address=${encodeURIComponent(address)}`).catch(() => null),
     ]);
     if(!assetsRes.ok){
       const errJson = await assetsRes.json().catch(() => ({}));
@@ -1040,6 +1073,12 @@ async function loadWallet(address){
     if(listedRes && listedRes.ok){
       const parsed = await listedRes.json().catch(() => []);
       if(Array.isArray(parsed)) listedJson = parsed;
+    }
+    // Same best-effort degrade for OpenSea — a hiccup here just means
+    // "nothing listed there" rather than failing the whole wallet load.
+    if(osListedRes && osListedRes.ok){
+      const parsed = await osListedRes.json().catch(() => ({}));
+      if(Array.isArray(parsed?.listings)) osListedJson = parsed.listings;
     }
   }catch(e){
     setStatus('Could not load that wallet: ' + e.message, true);
@@ -1092,7 +1131,7 @@ async function loadWallet(address){
     const collectionName = t.collectionName || 'Unknown Collection';
     const key = nameToKey[collectionName] || collectionName;
     if(!allGroups[key]) allGroups[key] = { name: collectionName, items: [], sampleMint: t.mintAddress, symbol: undefined, floor: undefined, knownRarities: undefined };
-    allGroups[key].items.push({
+    const newItem = {
       mint: t.mintAddress,
       name: t.name,
       collectionName,
@@ -1100,6 +1139,52 @@ async function loadWallet(address){
       attributes: Array.isArray(t.attributes) ? t.attributes : [],
       isListed: true,
       listPrice: typeof t.price === 'number' ? t.price : null,
+    };
+    allGroups[key].items.push(newItem);
+    // Registered here so the OpenSea merge just below (which also checks
+    // ownedByMint first) finds this same item if the identical mint shows
+    // up in both marketplaces' listings — without this, a mint escrowed
+    // out of ownedByMint by this branch was invisible to that later
+    // lookup too, so a comic listed on both ME and OS at once produced two
+    // separate phantom rows in My Listings instead of one row with both
+    // links (confirmed live).
+    ownedByMint.set(t.mintAddress, newItem);
+    nameToKey[collectionName] = key;
+  }
+
+  // Same merge, for OpenSea listings — a comic listed there also vanishes
+  // from Helius's getAssetsByOwner if OpenSea's Solana listings escrow the
+  // mint the same way Magic Eden's do (unconfirmed either way, so this
+  // handles both cases rather than assuming). Unlike Magic Eden's listed-
+  // tokens response, OpenSea's per-account listings endpoint returns only
+  // a bare mint + price — no name/image/attributes/collection at all — so
+  // a mint not already owned needs a live metadata lookup (via the
+  // Worker's existing generic proxy, /tokens/{mint}, the same call
+  // resolveCandyUrl above already makes) before a new shelf card can be
+  // built for it. Expected to be rare (most listed comics are still
+  // findable via ownedByMint), so resolving sequentially here rather than
+  // batching is fine.
+  for(const o of osListedJson){
+    if(!o || !o.mint) continue;
+    const existing = ownedByMint.get(o.mint);
+    if(existing){
+      existing.isListedOS = true;
+      existing.listPriceOS = typeof o.priceSol === 'number' ? o.priceSol : null;
+      continue;
+    }
+    const meta = await resolveOpenSeaOnlyMetadata(o.mint);
+    const collectionName = meta?.collectionName || 'Unknown Collection';
+    if(isExcludedCollection(collectionName)) continue;
+    const key = nameToKey[collectionName] || collectionName;
+    if(!allGroups[key]) allGroups[key] = { name: collectionName, items: [], sampleMint: o.mint, symbol: undefined, floor: undefined, knownRarities: undefined };
+    allGroups[key].items.push({
+      mint: o.mint,
+      name: meta?.name || o.mint.slice(0, 8),
+      collectionName,
+      image: meta?.image || '',
+      attributes: Array.isArray(meta?.attributes) ? meta.attributes : [],
+      isListedOS: true,
+      listPriceOS: typeof o.priceSol === 'number' ? o.priceSol : null,
     });
     nameToKey[collectionName] = key;
   }
@@ -1366,9 +1451,9 @@ function priceTagHtmlFor(floor){
 // of a fifth sticker crowding the art. Known synchronously at load —
 // unlike floor/rarity, nothing here needs a later patch-in-place.
 function listedInfoFor(items){
-  const listed = items.filter(i => i.isListed);
+  const listed = items.filter(i => i.isListed || i.isListedOS);
   if(listed.length === 0) return null;
-  const prices = listed.map(i => i.listPrice).filter(p => typeof p === 'number');
+  const prices = listed.flatMap(i => [i.listPrice, i.listPriceOS]).filter(p => typeof p === 'number');
   return { count: listed.length, minPrice: prices.length ? Math.min(...prices) : null };
 }
 
@@ -1682,8 +1767,8 @@ function collectionModalTileHtml({ title, rarity, items }){
   // case) is currently listed, if any — separate from listedInfoFor's
   // collection-level rollup on the shelf card, since here it matters which
   // exact print, not just that the collection has something for sale.
-  const listedItems = items.filter(i => i.isListed);
-  const listedPrices = listedItems.map(i => i.listPrice).filter(p => typeof p === 'number');
+  const listedItems = items.filter(i => i.isListed || i.isListedOS);
+  const listedPrices = listedItems.flatMap(i => [i.listPrice, i.listPriceOS]).filter(p => typeof p === 'number');
   const isPack = items.some(isPackItem);
   return `
     <div class="copy-card" data-tile-mint="${esc(rep.mint)}">
@@ -2414,18 +2499,24 @@ tradeComposeInputEl.addEventListener('keydown', (e) => { if(e.key === 'Enter') s
 // Unlike Spares, nothing here is ever "still pricing" — listing status
 // and price both came back with the initial wallet load (merged into
 // allGroups in loadWallet), so this never needs a live-while-open patch
-// path the way renderSparesModal does.
+// path the way renderSparesModal does. A single item can be listed on
+// both Magic Eden and OpenSea at once (nothing here enforces exclusivity
+// between them), so each stack carries both prices independently rather
+// than picking just one — see renderListingsModal for how both surface.
 function computeListingStacks(){
   const stacks = [];
   for(const key of Object.keys(allGroups)){
     const g = allGroups[key];
     for(const item of g.items){
-      if(!item.isListed) continue;
+      if(!item.isListed && !item.isListedOS) continue;
+      const prices = [item.listPrice, item.listPriceOS].filter(p => typeof p === 'number');
       stacks.push({
         collectionName: g.name,
         title: cleanTitle(item.name) || item.name,
         rarity: normalizeRarity(item.attributes),
-        price: item.listPrice,
+        price: prices.length ? Math.min(...prices) : null,
+        mePrice: item.isListed ? item.listPrice : undefined,
+        osPrice: item.isListedOS ? item.listPriceOS : undefined,
         image: item.image || '',
         mint: item.mint,
       });
@@ -2456,7 +2547,8 @@ function renderListingsModal(){
       </div>
       <div class="spare-value">
         <div class="spare-value-amt${s.price === null ? ' unavailable' : ''}">${s.price === null ? 'price n/a' : s.price.toFixed(3) + ' SOL'}</div>
-        <a class="copy-me-tag" href="${esc(`https://magiceden.io/item-details/${s.mint}`)}" target="_blank" rel="noopener">View on Magic Eden &#8599;</a>
+        ${s.mePrice !== undefined ? `<a class="copy-me-tag" href="${esc(`https://magiceden.io/item-details/${s.mint}`)}" target="_blank" rel="noopener">View on Magic Eden${s.mePrice !== null ? ` &middot; ${s.mePrice.toFixed(3)} SOL` : ''} &#8599;</a>` : ''}
+        ${s.osPrice !== undefined ? `<a class="copy-me-tag" href="${esc(`https://opensea.io/item/solana/${s.mint}`)}" target="_blank" rel="noopener">View on OpenSea${s.osPrice !== null ? ` &middot; ${s.osPrice.toFixed(3)} SOL` : ''} &#8599;</a>` : ''}
       </div>
     </div>
   `).join('');
