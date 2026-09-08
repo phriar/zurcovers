@@ -8,11 +8,11 @@ Same no-build architecture as ZurVault: no build step, no package manager, no fr
 
 | File | What it does |
 |---|---|
-| `index.html` | Landing page — wallet-address input, the "find vs. enjoy" mental-model pitch, and links out to the rest of the site. |
+| `index.html` | Landing page — wallet-address input front and center, the "find vs. enjoy" mental-model pitch, a tip-jar footer, and two page-card rows ("No wallet needed": ZurVault, Trade Board; "Deeper views, same wallet": Grid, Quests, Slideshow). |
 | `MyComics.html` | **Flagship "Long Box" page.** One shelf card per collection; open a card to see every comic/rarity variant owned, missing-rarity ("Complete Set") detection, Spares, My Listings (Magic Eden + OpenSea), and a shareable Flex Card for a completed set. |
 | `wallet.html` | "Grid" view — every cover as its own card (rarity variants not collapsed together), search and sort across the whole wallet. |
 | `collections.html` | "Collections" view — browse by collection first, drill into rarity tiers owned and the current lowest listed price per tier. |
-| `quests.html` | Checks a wallet against Candy Digital's weekly "Collect the Universe" quests — requirement data is hand-maintained in the file itself once each week's quest is announced. |
+| `quests.html` | Checks a wallet against Candy Digital's weekly "Collect the Universe" quests (9 weekly quests, Aug 21 – Oct 23 2026) — requirement data is hand-maintained in the file itself once each week's quest is announced. |
 | `slideshow.html` | Full-screen kiosk-style playback of a wallet's covers — collection picker, shuffle, attributes per frame. |
 | `trade-board.html` / `trade-alerts.html` | Public trade-proposal and buy-offer board (no wallet needed to browse), plus a private check-in page with new-since-last-visit badges. |
 | `activity.html` | Magic Eden buying-activity log for a wallet, by collection. Not in site nav, still reachable directly. |
