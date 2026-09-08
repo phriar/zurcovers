@@ -345,18 +345,45 @@ function cleanTitle(name){
     .trim();
 }
 
+// Some DC3/Candy Digital mint batches drop the "(YYYY-YYYY)" run-year
+// parenthetical and/or the "#" issue marker from an otherwise-identical
+// print's name — confirmed live on Detective Comics (2016-) #1059, where
+// most of a wallet's copies are named "Detective Comics 1059 <serial>"
+// while at least one (an earlier mint batch, same collectionKey, same
+// Rarity) is named "Detective Comics (2016-) #1059 <serial>". Left as two
+// different cleanTitle() strings, this silently split one comic's rarity
+// tier into two separate rows/counts. Used only for the grouping KEY
+// below — never for what's actually shown — so an already-correctly-
+// formatted title never displays any worse.
+function normalizeTitleKey(title){
+  return title
+    .replace(/\(\s*\d{4}\s*-\s*\d{0,4}\s*\)/g, '')
+    .replace(/#/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
 // Same rarity-string normalization as the Worker/ZurVault — "(40.400)"
 // weight suffixes stripped, CORE/BASE/STANDARD aliased to Common.
 const RARITY_ALIASES = { common:'common', core:'common', base:'common', standard:'common', uncommon:'uncommon', rare:'rare', epic:'epic', legendary:'legendary' };
 const RARITY_LABELS = { common:'Common', uncommon:'Uncommon', rare:'Rare', epic:'Epic', legendary:'Legendary' };
+// Some drops (confirmed live on Detective Comics (2016-) #1059) tag a
+// single asset with the "Rarity" trait_type more than once in its own
+// attributes array — e.g. both "Uncommon (32.390)" and "UNCOMMON" as two
+// separate entries. Taking just the first one is a coin flip if that
+// entry ever fails to normalize — walk every "rarity"-named attribute and
+// use the first one that actually resolves to a real tier.
 function normalizeRarity(attributes){
-  const attr = (attributes || []).find(a => /^rarity$/i.test(a?.trait_type || ''));
-  if(!attr) return null;
-  const raw = String(attr.value || '').trim();
-  const match = /^(.*?)\s*\(([\d.]+)\)\s*$/.exec(raw);
-  const cleaned = (match ? match[1] : raw).trim().toLowerCase();
-  const key = RARITY_ALIASES[cleaned];
-  return key ? RARITY_LABELS[key] : null;
+  for(const attr of (attributes || [])){
+    if(!/^rarity$/i.test(attr?.trait_type || '')) continue;
+    const raw = String(attr.value || '').trim();
+    const match = /^(.*?)\s*\(([\d.]+)\)\s*$/.exec(raw);
+    const cleaned = (match ? match[1] : raw).trim().toLowerCase();
+    const key = RARITY_ALIASES[cleaned];
+    if(key) return RARITY_LABELS[key];
+  }
+  return null;
 }
 
 // Migrated-over unopened packs (confirmed live: "Item Type" = "Pack", no
@@ -571,7 +598,7 @@ function renderCollections(){
   const keys = sortedKeys();
   collectionsViewEl.innerHTML = keys.map(key => {
     const g = groups[key];
-    const distinctComics = new Set(g.items.map(i => cleanTitle(i.name) || i.mint)).size;
+    const distinctComics = new Set(g.items.map(i => normalizeTitleKey(cleanTitle(i.name) || i.mint))).size;
     const coverImage = g.items.find(i => i.image)?.image || '';
     return `
       <button class="coll-card" data-key="${esc(key)}">
@@ -762,8 +789,9 @@ function renderComicsList(key, symbol){
   const byTitle = new Map();
   for(const item of g.items){
     const title = cleanTitle(item.name) || item.mint;
-    if(!byTitle.has(title)) byTitle.set(title, { representative: item, rarities: new Map() });
-    const entry = byTitle.get(title);
+    const titleKey = normalizeTitleKey(title);
+    if(!byTitle.has(titleKey)) byTitle.set(titleKey, { title, representative: item, rarities: new Map() });
+    const entry = byTitle.get(titleKey);
     // Unopened packs get their own bucket ('__pack__') distinct from
     // null (no-rarity-trait) so they never blend into a generic
     // "No rarity data" row — see isPackItem() above.
@@ -772,7 +800,8 @@ function renderComicsList(key, symbol){
     entry.rarities.get(rarity).count++;
   }
 
-  comicsListEl.innerHTML = [...byTitle.entries()].map(([title, entry]) => {
+  comicsListEl.innerHTML = [...byTitle.values()].map(entry => {
+    const title = entry.title;
     const rarityRows = [...entry.rarities.entries()].map(([rarity, info]) => {
       const isPack = rarity === '__pack__';
       let priceHtml;

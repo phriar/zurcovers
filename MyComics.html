@@ -858,10 +858,23 @@ function normalizeRarityValue(raw){
   const key = RARITY_ALIASES[cleaned];
   return key ? RARITY_LABELS[key] : null;
 }
+// Some drops (confirmed live on Detective Comics (2016-) #1059) tag a
+// single asset with the "Rarity" trait_type more than once in its own
+// attributes array — e.g. both "Uncommon (32.390)" and "UNCOMMON" as two
+// separate entries. .find() picking just the first one is a coin flip if
+// that first entry ever fails to normalize (typo, unexpected format, a
+// stray duplicate) — the item then silently reads as no-rarity-at-all,
+// which is exactly what made a real owned Legendary copy show up as
+// "missing" from a wallet's complete set. Walk every "rarity"-named
+// attribute and use the first one that actually resolves to a real tier,
+// instead of stopping at whichever happens to come first.
 function normalizeRarity(attributes){
-  const attr = (attributes || []).find(a => /^rarity$/i.test(a?.trait_type || ''));
-  if(!attr) return null;
-  return normalizeRarityValue(attr.value);
+  for(const a of (attributes || [])){
+    if(!/^rarity$/i.test(a?.trait_type || '')) continue;
+    const label = normalizeRarityValue(a.value);
+    if(label) return label;
+  }
+  return null;
 }
 
 
@@ -1391,12 +1404,33 @@ function cleanTitle(name){
     .trim();
 }
 
+// Some DC3/Candy Digital mint batches drop the "(YYYY-YYYY)" run-year
+// parenthetical and/or the "#" issue marker from an otherwise-identical
+// print's name — confirmed live on Detective Comics (2016-) #1059, where
+// most of a wallet's copies are named "Detective Comics 1059 <serial>"
+// while at least one (an earlier mint batch, same collectionKey, same
+// Rarity) is named "Detective Comics (2016-) #1059 <serial>". Left as two
+// different cleanTitle() strings, this silently split one comic's rarity
+// tier into two separate tiles/counts (a wallet's real "Rare" tile showing
+// twice, its true copy count undercounted on each half). Used only for
+// the grouping KEY below — never for what's actually shown — so an
+// already-correctly-formatted title never displays any worse.
+function normalizeTitleKey(title){
+  return title
+    .replace(/\(\s*\d{4}\s*-\s*\d{0,4}\s*\)/g, '')
+    .replace(/#/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
 // Distinct comic titles within one collection, ignoring rarity — used
 // only for the "X comics" counts (shelf card caption, collector summary).
 function groupByName(items){
   const byName = new Map();
   for(const item of items){
-    const k = cleanTitle(item.name) || item.mint;
+    const title = cleanTitle(item.name) || item.mint;
+    const k = normalizeTitleKey(title);
     if(!byName.has(k)) byName.set(k, 0);
     byName.set(k, byName.get(k) + 1);
   }
@@ -1431,7 +1465,7 @@ function groupByTitleAndRarity(items){
   for(const item of items){
     const title = cleanTitle(item.name) || item.mint;
     const rarity = normalizeRarity(item.attributes);
-    const k = title + '::' + (rarity || '');
+    const k = normalizeTitleKey(title) + '::' + (rarity || '');
     if(!map.has(k)) map.set(k, { title, rarity, items: [] });
     map.get(k).items.push(item);
   }

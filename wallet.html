@@ -391,14 +391,22 @@ function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').rep
 // Common.
 const RARITY_ALIASES = { common:'common', core:'common', base:'common', standard:'common', uncommon:'uncommon', rare:'rare', epic:'epic', legendary:'legendary' };
 const RARITY_LABELS = { common:'Common', uncommon:'Uncommon', rare:'Rare', epic:'Epic', legendary:'Legendary' };
+// Some drops (confirmed live on Detective Comics (2016-) #1059) tag a
+// single asset with the "Rarity" trait_type more than once in its own
+// attributes array — e.g. both "Uncommon (32.390)" and "UNCOMMON" as two
+// separate entries. Taking just the first one is a coin flip if that
+// entry ever fails to normalize — walk every "rarity"-named attribute and
+// use the first one that actually resolves to a real tier.
 function normalizeRarity(attributes){
-  const attr = (attributes || []).find(a => /^rarity$/i.test(a?.trait_type || ''));
-  if(!attr) return null;
-  const raw = String(attr.value || '').trim();
-  const match = /^(.*?)\s*\(([\d.]+)\)\s*$/.exec(raw);
-  const cleaned = (match ? match[1] : raw).trim().toLowerCase();
-  const key = RARITY_ALIASES[cleaned];
-  return key ? RARITY_LABELS[key] : null;
+  for(const attr of (attributes || [])){
+    if(!/^rarity$/i.test(attr?.trait_type || '')) continue;
+    const raw = String(attr.value || '').trim();
+    const match = /^(.*?)\s*\(([\d.]+)\)\s*$/.exec(raw);
+    const cleaned = (match ? match[1] : raw).trim().toLowerCase();
+    const key = RARITY_ALIASES[cleaned];
+    if(key) return RARITY_LABELS[key];
+  }
+  return null;
 }
 
 // Migrated-over unopened packs (confirmed live: "Item Type" = "Pack",
@@ -660,6 +668,27 @@ function cleanTitle(name){
     .trim();
 }
 
+// Some DC3/Candy Digital mint batches drop the "(YYYY-YYYY)" run-year
+// parenthetical and/or the "#" issue marker from an otherwise-identical
+// print's name — confirmed live on Detective Comics (2016-) #1059, where
+// most of a wallet's copies are named "Detective Comics 1059 <serial>"
+// while at least one (an earlier mint batch, same collectionKey, same
+// Rarity) is named "Detective Comics (2016-) #1059 <serial>". Left as two
+// different cleanTitle() strings, this silently split one comic's rarity
+// tier into two separate cards, each undercounting its own ×N badge.
+// Used only for the grouping KEY below — never for what's actually shown
+// (buildFlatCards re-derives its own display title from the group's
+// representative item) — so an already-correctly-formatted title never
+// displays any worse.
+function normalizeTitleKey(title){
+  return title
+    .replace(/\(\s*\d{4}\s*-\s*\d{0,4}\s*\)/g, '')
+    .replace(/#/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
 // acquiredAt tracks the MOST RECENT purchase timestamp among all mints
 // collapsed into this card (not just the representative's) — buying a
 // second copy of a comic you already hold should bump that card back
@@ -682,7 +711,7 @@ function groupByName(items){
     // Same base title (and rarity) as an opened copy of this issue would
     // clean down to — the pack suffix keeps an unopened pack from
     // collapsing into the same group as an opened copy of that issue.
-    const k = (cleanTitle(item.name) || item.mint) + '::' + (rarity || '') + (packFlag ? ' — unopened pack' : '');
+    const k = normalizeTitleKey(cleanTitle(item.name) || item.mint) + '::' + (rarity || '') + (packFlag ? ' — unopened pack' : '');
     if(!byName.has(k)) byName.set(k, { representative: item, count: 0, acquiredAt: undefined, isPack: packFlag });
     const entry = byName.get(k);
     entry.count++;

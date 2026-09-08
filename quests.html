@@ -276,14 +276,22 @@ function isExcludedCollection(name){
 
 const RARITY_ALIASES = { common:'common', core:'common', base:'common', standard:'common', uncommon:'uncommon', rare:'rare', epic:'epic', legendary:'legendary' };
 const RARITY_LABELS = { common:'Common', uncommon:'Uncommon', rare:'Rare', epic:'Epic', legendary:'Legendary' };
+// Some drops (confirmed live on Detective Comics (2016-) #1059) tag a
+// single asset with the "Rarity" trait_type more than once in its own
+// attributes array — e.g. both "Uncommon (32.390)" and "UNCOMMON" as two
+// separate entries. Taking just the first one is a coin flip if that
+// entry ever fails to normalize — walk every "rarity"-named attribute and
+// use the first one that actually resolves to a real tier.
 function normalizeRarity(attributes){
-  const attr = (attributes || []).find(a => /^rarity$/i.test(a?.trait_type || ''));
-  if(!attr) return null;
-  const value = String(attr.value || '').trim();
-  const match = /^(.*?)\s*\(([\d.]+)\)\s*$/.exec(value);
-  const cleaned = (match ? match[1] : value).trim().toLowerCase();
-  const key = RARITY_ALIASES[cleaned];
-  return key ? RARITY_LABELS[key] : null;
+  for(const attr of (attributes || [])){
+    if(!/^rarity$/i.test(attr?.trait_type || '')) continue;
+    const value = String(attr.value || '').trim();
+    const match = /^(.*?)\s*\(([\d.]+)\)\s*$/.exec(value);
+    const cleaned = (match ? match[1] : value).trim().toLowerCase();
+    const key = RARITY_ALIASES[cleaned];
+    if(key) return RARITY_LABELS[key];
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------
