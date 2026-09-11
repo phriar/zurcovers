@@ -342,7 +342,10 @@ const QUESTS = [
     week: 1,
     title: "Lanterns",
     opensAt: "2026-08-21T00:00:00-04:00",
-    snapshotAt: "2026-09-04T00:00:00-04:00",
+    // Originally snapshotted 2026-09-04; Candy Digital extended it in the
+    // same tweet announcing Quest 2 (confirmed 2026-09-10) to close
+    // alongside Quest 2 instead.
+    snapshotAt: "2026-09-18T14:00:00-04:00",
     reward: "Free $25 pull on the ComicBook machine (first completed quest of the season)",
     requirement: {
       description: "Own 2 of: Showcase (1956-1978) #22, Green Lantern (1960-1986) #59, or All-American Comics (1939-1948) #16 (any rarity) — plus 1 of: Green Lantern (2023-) #1 or Blackest Night (2009-2010) #1 (any rarity). Must hold all at the quest snapshot.",
@@ -359,12 +362,42 @@ const QUESTS = [
       ]
     }
   },
-  // Weeks 2-9: not yet announced. Fill in the same shape as Week 1 above
-  // once Candy Digital posts each one — groups: [] renders as "Awaiting
-  // requirement" / "not yet checkable" rather than a false negative.
-  ...Array.from({ length: 8 }, (_, i) => ({
-    week: i + 2,
-    title: `Week ${i + 2}`,
+  {
+    week: 2,
+    title: "The Absolute Universe",
+    // From Candy Digital's own tweet announcing this quest (2026-09-10):
+    // opens Sept. 11 2026 2PM ET, closes Sept. 18 2026 2PM ET.
+    opensAt: "2026-09-11T14:00:00-04:00",
+    snapshotAt: "2026-09-18T14:00:00-04:00",
+    // Candy Digital is separately raffling one complete Quest 2 set to a
+    // random follower (a promo tied to the announcement tweet, not
+    // something owed for completing the quest yourself) — not modeled
+    // here since it isn't part of the season-wide tiered reward ladder
+    // (see SEASON_TIERS/renderSeasonSummary) that every quest counts toward.
+    reward: "Counts toward this season's tiered rewards — see summary above",
+    requirement: {
+      // "Any issue counts, duplicates within a series count only once" —
+      // unlike Week 1, no specific issue number is required per series, so
+      // each item's namePattern intentionally has no "#" issue match.
+      description: "Own any issue from 4 of these 5 Absolute Universe series (any rarity; duplicates within one series count only once): Absolute Batman (2024-), Absolute Flash (2025-), Absolute Superman (2024-), Absolute Wonder Woman (2024-), or Absolute Martian Manhunter (2025-). Must hold all at the quest snapshot.",
+      groups: [
+        { min: 4, items: [
+          { label: "Absolute Batman (2024-), any issue", namePattern: /absolute batman\s*\(2024-?\)/i },
+          { label: "Absolute Flash (2025-), any issue", namePattern: /absolute flash\s*\(2025-?\)/i },
+          { label: "Absolute Superman (2024-), any issue", namePattern: /absolute superman\s*\(2024-?\)/i },
+          { label: "Absolute Wonder Woman (2024-), any issue", namePattern: /absolute wonder woman\s*\(2024-?\)/i },
+          { label: "Absolute Martian Manhunter (2025-), any issue", namePattern: /absolute martian manhunter\s*\(2025-?\)/i },
+        ] },
+      ]
+    }
+  },
+  // Weeks 3-9: not yet announced. Fill in the same shape as Weeks 1-2
+  // above once Candy Digital posts each one — groups: [] renders as
+  // "Awaiting requirement" / "not yet checkable" rather than a false
+  // negative.
+  ...Array.from({ length: 7 }, (_, i) => ({
+    week: i + 3,
+    title: `Week ${i + 3}`,
     opensAt: null,
     snapshotAt: null,
     reward: "TBD",
